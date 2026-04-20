@@ -4,79 +4,186 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
-model Recipe {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+// ─── User ─────────────────────────────────────────────────────────────────────
 
-  // User-editable display fields
-  name        String
-  description String?
-  servings    Int      @default(2)
-  prepMins    Int      @default(0)
-  cookMins    Int      @default(0)
-
-  // Raw source data preserved as-is for editability
-  rawIngredients String  // raw text blob, one ingredient per line
-  rawInstructions String // raw text blob
-
-  // Parsed/structured (nullable — parsing may fail, user corrects)
-  ingredients  Ingredient[]
-  tags         RecipeTag[]
-  mealSlots    MealSlot[]
-}
-
-model Ingredient {
-  id       String  @id @default(cuid())
-  recipeId String
-  recipe   Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-
-  // Raw line preserved
-  rawText  String
-
-  // Parsed fields — all nullable, user corrects if wrong
-  quantity Float?
-  unit     String?
-  item     String?
-}
-
-model RecipeTag {
-  id       String @id @default(cuid())
-  recipeId String
-  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  tag      String
-
-  @@unique([recipeId, tag])
-}
-
-model MealPlan {
+model User {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  name      String   // e.g. "Week of Apr 21"
-  weekStart DateTime // ISO Monday of the week (UTC, date only)
-  notes     String?
+  email String  @unique
+  name  String?
 
-  slots     MealSlot[]
+  recipes   Recipe[]
+  mealPlans MealPlanWeek[]
 }
 
-model MealSlot {
-  id         String   @id @default(cuid())
-  mealPlanId String
-  mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+// ─── Recipes ──────────────────────────────────────────────────────────────────
 
-  dayOfWeek  Int      // 0=Mon … 6=Sun
-  mealType   String   // "breakfast" | "lunch" | "dinner" | "snack"
+model Recipe {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  recipeId   String?
-  recipe     Recipe?  @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Freeform override — user can type anything, overrides recipe link
-  customNote String?
+  name        String
+  description String?  @db.Text
+  servings    Int      @default(2)
+  prepMins    Int      @default(0)
+  cookMins    Int      @default(0)
+  source      String?  // URL or book reference
 
-  @@unique([mealPlanId, dayOfWeek, mealType])
+  // Verbatim input — never overwritten by the parser
+  rawIngredients  String @db.Text
+  rawInstructions String @db.Text
+
+  ingredients   RecipeIngredient[]
+  steps         RecipeStep[]
+  mealPlanItems MealPlanItem[]
+
+  @@index([userId])
+  @@index([updatedAt])
+}
+
+// ─── Canonical ingredient lookup ──────────────────────────────────────────────
+// Normalised across the whole system so shopping lists can aggregate
+// "AP flour", "all-purpose flour", and "plain flour" into one row.
+
+model Ingredient {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name     String   @unique // canonical lowercase, e.g. "all-purpose flour"
+  aliases  String[] // ["plain flour", "ap flour"]  — PostgreSQL native array
+  category String?  // "baking" | "produce" | "dairy" | "protein" | "pantry" | "spice" | "other"
+
+  recipeIngredients RecipeIngredient[]
+}
+
+// ─── Recipe line items ────────────────────────────────────────────────────────
+
+model RecipeIngredient {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  recipeId  String
+  recipe    Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  sortOrder Int    @default(0)
+
+  // Immutable raw text from the original recipe input
+  rawText String
+
+  // Parsed fields — all nullable; null means parser could not resolve,
+  // user should correct via PATCH /api/recipes/:id
+  quantity     Float?
+  unit         String? // normalised: "g", "ml", "cup", "tsp", …
+  ingredientId String?
+  ingredient   Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
+  notes        String? // "finely chopped", "at room temperature"
+  isOptional   Boolean @default(false)
+
+  ingredientStates MealPlanIngredientState[]
+
+  @@index([recipeId])
+  @@index([ingredientId])
+}
+
+model RecipeStep {
+  id String @id @default(cuid())
+
+  recipeId String
+  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  stepNumber   Int
+  instruction  String @db.Text
+  durationMins Int?
+
+  @@unique([recipeId, stepNumber])
+  @@index([recipeId])
+}
+
+// ─── Meal planning ────────────────────────────────────────────────────────────
+
+model MealPlanWeek {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String?
+  weekStart DateTime @db.Date // UTC Monday — canonical week anchor, stored as date only
+  notes     String?  @db.Text
+
+  items MealPlanItem[]
+
+  @@unique([userId, weekStart])
+  @@index([userId])
+}
+
+model MealPlanItem {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mealPlanWeekId String
+  mealPlanWeek   MealPlanWeek @relation(fields: [mealPlanWeekId], references: [id], onDelete: Cascade)
+
+  recipeId String
+  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Restrict)
+
+  dayOfWeek Int    // 0=Mon … 6=Sun
+  mealType  String // "breakfast" | "lunch" | "dinner" | "snack"
+
+  // Per-occurrence scaling — both stored; scaleFactor cached to avoid join during aggregation
+  servings    Int
+  scaleFactor Float // = servings / recipe.servings
+
+  customNote String? @db.Text // shown instead of recipe name if set
+
+  ingredientStates MealPlanIngredientState[]
+
+  @@unique([mealPlanWeekId, dayOfWeek, mealType])
+  @@index([mealPlanWeekId])
+  @@index([recipeId])
+}
+
+// ─── Shopping list state ──────────────────────────────────────────────────────
+// One row per (MealPlanItem × RecipeIngredient) — tracks shopping state
+// independently per meal occurrence so the same ingredient on Monday and
+// Wednesday can have different states.
+
+enum ShoppingState {
+  PENDING     // not yet reviewed
+  HAVE_IT     // user already has it at home
+  NEED_TO_BUY
+  BOUGHT
+}
+
+model MealPlanIngredientState {
+  id        String   @id @default(cuid())
+  updatedAt DateTime @updatedAt
+
+  mealPlanItemId String
+  mealPlanItem   MealPlanItem @relation(fields: [mealPlanItemId], references: [id], onDelete: Cascade)
+
+  recipeIngredientId String
+  recipeIngredient   RecipeIngredient @relation(fields: [recipeIngredientId], references: [id], onDelete: Cascade)
+
+  state ShoppingState @default(PENDING)
+
+  // Optional user overrides — e.g. "I only need half" or a different unit
+  quantityOverride Float?
+  unitOverride     String?
+  note             String?
+
+  @@unique([mealPlanItemId, recipeIngredientId])
+  @@index([mealPlanItemId])
 }
