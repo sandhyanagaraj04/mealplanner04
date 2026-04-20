@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Recipe {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // User-editable display fields
+  name        String
+  description String?
+  servings    Int      @default(2)
+  prepMins    Int      @default(0)
+  cookMins    Int      @default(0)
+
+  // Raw source data preserved as-is for editability
+  rawIngredients String  // raw text blob, one ingredient per line
+  rawInstructions String // raw text blob
+
+  // Parsed/structured (nullable — parsing may fail, user corrects)
+  ingredients  Ingredient[]
+  tags         RecipeTag[]
+  mealSlots    MealSlot[]
+}
+
+model Ingredient {
+  id       String  @id @default(cuid())
+  recipeId String
+  recipe   Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  // Raw line preserved
+  rawText  String
+
+  // Parsed fields — all nullable, user corrects if wrong
+  quantity Float?
+  unit     String?
+  item     String?
+}
+
+model RecipeTag {
+  id       String @id @default(cuid())
+  recipeId String
+  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  tag      String
+
+  @@unique([recipeId, tag])
+}
+
+model MealPlan {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name      String   // e.g. "Week of Apr 21"
+  weekStart DateTime // ISO Monday of the week (UTC, date only)
+  notes     String?
+
+  slots     MealSlot[]
+}
+
+model MealSlot {
+  id         String   @id @default(cuid())
+  mealPlanId String
+  mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+
+  dayOfWeek  Int      // 0=Mon … 6=Sun
+  mealType   String   // "breakfast" | "lunch" | "dinner" | "snack"
+
+  recipeId   String?
+  recipe     Recipe?  @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
+  // Freeform override — user can type anything, overrides recipe link
+  customNote String?
+
+  @@unique([mealPlanId, dayOfWeek, mealType])
+}
