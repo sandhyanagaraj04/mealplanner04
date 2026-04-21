@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { convertUnit, roundQty } from "@/lib/parsers/unitConverter";
 import type {
   ShoppingList,
   ShoppingListItem,
@@ -11,8 +12,14 @@ import type { UpdateIngredientState } from "@/lib/validations/mealplan";
 
 // ─── Aggregation ──────────────────────────────────────────────────────────────
 // Groups ingredients across all meal plan items for the week.
-// Same canonical ingredient (same ingredientId) → summed IF units match.
-// Unresolved ingredients (no ingredientId) → grouped by normalised rawText.
+//
+// Same canonical ingredient (same ingredientId) → same group.
+// No canonical match → grouped by normalised rawText.
+//
+// Quantities are summed after unit conversion to the group's target unit
+// (the first non-null unit seen in the group). If conversion is impossible
+// (e.g. volume vs weight) the group's totalQuantity is set to null, and the
+// UI must show per-source quantities instead.
 
 export async function getShoppingList(planId: string, userId: string): Promise<ShoppingList | null> {
   const plan = await db.mealPlanWeek.findFirst({
@@ -20,9 +27,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
     include: {
       items: {
         include: {
-          recipe: {
-            select: { id: true, name: true, servings: true },
-          },
+          recipe: { select: { id: true, name: true, servings: true } },
           ingredientStates: {
             select: {
               id: true,
@@ -40,29 +45,26 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
 
   if (!plan) return null;
 
-  // Fetch all recipe ingredients for every recipe referenced in the plan
+  // Fetch all recipe ingredients referenced in the plan
   const recipeIds = [...new Set(plan.items.map((i) => i.recipeId))];
   const ingredients = await db.recipeIngredient.findMany({
     where: { recipeId: { in: recipeIds } },
     include: { ingredient: true },
   });
 
-  // Index by id for fast lookup
-  const ingredientMap = new Map(ingredients.map((ri) => [ri.id, ri]));
+  // Index recipe ingredients by id for O(1) lookup
+  const riMap = new Map(ingredients.map((ri) => [ri.id, ri]));
 
-  // Build state lookup: recipeIngredientId → state row (per mealPlanItem)
+  // Index shopping states: mealPlanItemId → Map<recipeIngredientId, stateRow>
   type StateRow = (typeof plan.items)[0]["ingredientStates"][0];
   const stateIndex = new Map<string, Map<string, StateRow>>();
   for (const item of plan.items) {
     const byRi = new Map<string, StateRow>();
-    for (const s of item.ingredientStates) {
-      byRi.set(s.recipeIngredientId, s);
-    }
+    for (const s of item.ingredientStates) byRi.set(s.recipeIngredientId, s);
     stateIndex.set(item.id, byRi);
   }
 
-  // ── Aggregation logic ──────────────────────────────────────────────────────
-  // Key: `ingredient:<ingredientId>` or `raw:<normalised rawText>`
+  // ── Build groups ───────────────────────────────────────────────────────────
   const groups = new Map<string, ShoppingListItem>();
 
   for (const item of plan.items) {
@@ -70,10 +72,9 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
     const stateByRi = stateIndex.get(item.id) ?? new Map();
 
     for (const ri of recipeIngredients) {
-      const existing = ingredientMap.get(ri.id);
-      if (!existing) continue;
-
       const stateRow = stateByRi.get(ri.id);
+
+      // Effective quantity: user override > scaled recipe quantity
       const scaledQty = ri.quantity != null ? ri.quantity * item.scaleFactor : null;
       const effectiveQty = stateRow?.quantityOverride ?? scaledQty;
       const effectiveUnit = stateRow?.unitOverride ?? ri.unit;
@@ -96,37 +97,57 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
         ? `ingredient:${ri.ingredientId}`
         : `raw:${ri.rawText.toLowerCase().trim()}`;
 
-      if (groups.has(key)) {
-        const group = groups.get(key)!;
-        group.sources.push(source);
-
-        // Sum quantities only when units agree and both are non-null
-        if (
-          effectiveQty != null &&
-          effectiveUnit != null &&
-          effectiveUnit === group.unit &&
-          group.totalQuantity != null
-        ) {
-          group.totalQuantity += effectiveQty;
-        } else {
-          // Unit mismatch or null — can't aggregate, mark total as null
-          group.totalQuantity = null;
-        }
-      } else {
+      if (!groups.has(key)) {
         groups.set(key, {
           ingredientId: ri.ingredientId ?? null,
           ingredientName: ri.ingredient?.name ?? ri.rawText,
           category: ri.ingredient?.category ?? null,
-          totalQuantity: effectiveQty,
+          totalQuantity: effectiveQty != null ? roundQty(effectiveQty) : null,
           unit: effectiveUnit,
+          unitConverted: false,
           sources: [source],
         });
+        continue;
       }
+
+      const group = groups.get(key)!;
+      group.sources.push(source);
+
+      // ── Unit aggregation with conversion ──────────────────────────────────
+      if (effectiveQty == null || group.totalQuantity == null) {
+        // One side is null — can't aggregate
+        group.totalQuantity = null;
+        continue;
+      }
+
+      if (effectiveUnit === null && group.unit === null) {
+        // Both unitless — sum as counts
+        group.totalQuantity = roundQty(group.totalQuantity + effectiveQty);
+        continue;
+      }
+
+      if (effectiveUnit === group.unit) {
+        group.totalQuantity = roundQty(group.totalQuantity + effectiveQty);
+        continue;
+      }
+
+      // Units differ — attempt conversion to group's target unit
+      if (effectiveUnit != null && group.unit != null) {
+        const converted = convertUnit(effectiveQty, effectiveUnit, group.unit);
+        if (converted !== null) {
+          group.totalQuantity = roundQty(group.totalQuantity + converted);
+          group.unitConverted = true;
+          continue;
+        }
+      }
+
+      // Conversion impossible (different dimensions) — null out total
+      group.totalQuantity = null;
     }
   }
 
+  // ── Sort: resolved ingredients first, then alphabetically ─────────────────
   const items = [...groups.values()].sort((a, b) => {
-    // Sort: resolved ingredients first, then by name
     if (a.ingredientId && !b.ingredientId) return -1;
     if (!a.ingredientId && b.ingredientId) return 1;
     return a.ingredientName.localeCompare(b.ingredientName);
@@ -150,12 +171,14 @@ export async function updateIngredientState(
   userId: string,
   data: UpdateIngredientState
 ) {
-  // Verify the state row belongs to this plan and user
   const stateRow = await db.mealPlanIngredientState.findFirst({
     where: { id: stateId },
     include: {
       mealPlanItem: {
-        select: { mealPlanWeekId: true, mealPlanWeek: { select: { userId: true } } },
+        select: {
+          mealPlanWeekId: true,
+          mealPlanWeek: { select: { userId: true } },
+        },
       },
     },
   });
@@ -181,7 +204,7 @@ export async function updateIngredientState(
   return { state: updated };
 }
 
-// ─── Bulk reset (convenience) ─────────────────────────────────────────────────
+// ─── Bulk reset ───────────────────────────────────────────────────────────────
 
 export async function resetShoppingList(planId: string, userId: string): Promise<boolean> {
   const plan = await db.mealPlanWeek.findFirst({ where: { id: planId, userId } });

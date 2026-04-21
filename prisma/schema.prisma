@@ -17,8 +17,45 @@ model User {
   email String  @unique
   name  String?
 
-  recipes   Recipe[]
-  mealPlans MealPlanWeek[]
+  recipes    Recipe[]
+  mealPlans  MealPlanWeek[]
+  ingestions RecipeIngestion[]
+}
+
+// ─── Recipe ingestion staging ─────────────────────────────────────────────────
+// Every import lands here first as a "draft". On user confirmation it becomes a Recipe.
+// Raw content is ALWAYS stored and NEVER overwritten — the source of truth for re-parsing.
+
+model RecipeIngestion {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sourceType String  // "url" | "text"
+  sourceUrl  String? // original URL if sourceType === "url"
+
+  // Full raw source — HTML page or text paste — never modified after creation
+  rawContent      String  @db.Text
+  // Extracted sub-sections stored separately so Recipe.rawIngredients is clean
+  rawIngredients  String  @db.Text
+  rawInstructions String  @db.Text
+
+  // Structured draft stored as JSON — all nullable fields, user corrects
+  parsedDraft Json
+
+  // Denormalised for quick filtering without JSON parsing
+  confidence Float
+  status     String @default("draft") // "draft" | "confirmed" | "discarded"
+
+  // Set on confirmation
+  recipeId String? @unique
+  recipe   Recipe? @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([createdAt])
 }
 
 // ─── Recipes ──────────────────────────────────────────────────────────────────
@@ -45,6 +82,7 @@ model Recipe {
   ingredients   RecipeIngredient[]
   steps         RecipeStep[]
   mealPlanItems MealPlanItem[]
+  ingestion     RecipeIngestion?   // set when created from an ingestion
 
   @@index([userId])
   @@index([updatedAt])
