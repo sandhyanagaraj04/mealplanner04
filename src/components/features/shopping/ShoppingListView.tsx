@@ -298,12 +298,27 @@ export default function ShoppingListView({ planId, list }: Props) {
         </div>
       </div>
 
-      {/* Unresolved warning */}
+      {/* Unresolved + potential duplicates warnings */}
       {list.unresolvedCount > 0 && (
-        <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-2 border border-amber-200 dark:border-amber-800">
-          {list.unresolvedCount} ingredient{list.unresolvedCount !== 1 ? "s" : ""} could not be
-          matched to a canonical ingredient — duplicates across recipes may appear as separate rows.
-        </p>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 flex flex-col gap-1.5">
+          <p className="text-xs text-amber-700">
+            <strong>{list.unresolvedCount} ingredient{list.unresolvedCount !== 1 ? "s" : ""}</strong>{" "}
+            could not be matched to a canonical ingredient — duplicates across recipes may appear as
+            separate rows in the <em>Unresolved</em> section below.
+          </p>
+          {list.potentialDuplicates.length > 0 && (
+            <div className="flex flex-col gap-0.5">
+              <p className="text-xs text-amber-700 font-medium">
+                Possible duplicates detected — review and check off both if needed:
+              </p>
+              {list.potentialDuplicates.map(([a, b], i) => (
+                <p key={i} className="text-xs text-amber-600">
+                  &ldquo;{a}&rdquo; and &ldquo;{b}&rdquo;
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {visibleCategories.length === 0 && (

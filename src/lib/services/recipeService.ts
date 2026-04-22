@@ -194,11 +194,26 @@ export async function updateRecipe(id: string, userId: string, data: RecipeUpdat
 
 // ─── Delete ───────────────────────────────────────────────────────────────────
 
-export async function deleteRecipe(id: string, userId: string): Promise<boolean> {
+export type DeleteRecipeResult =
+  | { deleted: true }
+  | { error: "not_found" }
+  | { error: "in_use"; itemCount: number; planCount: number };
+
+export async function deleteRecipe(id: string, userId: string): Promise<DeleteRecipeResult> {
   const existing = await db.recipe.findFirst({ where: { id, userId } });
-  if (!existing) return false;
+  if (!existing) return { error: "not_found" };
+
+  // Count how many meal plan slots reference this recipe (onDelete: Restrict).
+  const itemCount = await db.mealPlanItem.count({ where: { recipeId: id } });
+  if (itemCount > 0) {
+    const planCount = await db.mealPlanWeek.count({
+      where: { items: { some: { recipeId: id } } },
+    });
+    return { error: "in_use", itemCount, planCount };
+  }
+
   await db.recipe.delete({ where: { id } });
-  return true;
+  return { deleted: true };
 }
 
 // ─── Re-parse (explicit user action) ─────────────────────────────────────────

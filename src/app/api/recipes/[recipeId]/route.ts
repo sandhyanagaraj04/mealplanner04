@@ -7,6 +7,7 @@ import {
   noContent,
   badRequest,
   notFound,
+  conflict,
   serverError,
   validationError,
 } from "@/lib/api";
@@ -50,8 +51,16 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     const userId = await getUserId(req);
     const { recipeId } = await params;
 
-    const deleted = await deleteRecipe(recipeId, userId);
-    if (!deleted) return notFound("Recipe");
+    const result = await deleteRecipe(recipeId, userId);
+
+    if ("error" in result && result.error === "not_found") return notFound("Recipe");
+    if ("error" in result && result.error === "in_use") {
+      return conflict(
+        `Cannot delete: recipe is used in ${result.itemCount} meal slot${result.itemCount !== 1 ? "s" : ""} ` +
+          `across ${result.planCount} plan${result.planCount !== 1 ? "s" : ""}. ` +
+          `Remove it from all meal plans first.`
+      );
+    }
 
     return noContent();
   } catch (err) {

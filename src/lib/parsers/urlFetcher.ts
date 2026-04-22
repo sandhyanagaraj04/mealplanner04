@@ -47,39 +47,71 @@ function validateUrl(rawUrl: string): ValidateUrlResult {
   return { ok: true, url };
 }
 
+// ─── Video host detection ─────────────────────────────────────────────────────
+// These hosts serve HTML but contain no parseable recipe content. Detected early
+// so the user gets a clear message rather than a confusing low-confidence result.
+
+const VIDEO_HOSTNAMES = new Set([
+  "www.youtube.com",
+  "youtube.com",
+  "youtu.be",
+  "m.youtube.com",
+  "www.vimeo.com",
+  "vimeo.com",
+  "player.vimeo.com",
+  "www.tiktok.com",
+  "tiktok.com",
+  "vm.tiktok.com",
+  "www.twitch.tv",
+  "twitch.tv",
+  "clips.twitch.tv",
+  "www.dailymotion.com",
+  "dailymotion.com",
+]);
+
+function isVideoUrl(url: URL): boolean {
+  if (VIDEO_HOSTNAMES.has(url.hostname)) return true;
+  // Instagram /reel/ and /p/ paths are video-first
+  if (
+    (url.hostname === "www.instagram.com" || url.hostname === "instagram.com") &&
+    /^\/(reel|p)\//.test(url.pathname)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 // ─── Schema.org JSON-LD extraction ────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SchemaNode = Record<string, any>;
 
-function findRecipeNode(jsonld: unknown): SchemaNode | null {
-  if (!jsonld || typeof jsonld !== "object") return null;
+function findAllRecipeNodes(jsonld: unknown, found: SchemaNode[] = []): SchemaNode[] {
+  if (!jsonld || typeof jsonld !== "object") return found;
 
   const node = jsonld as SchemaNode;
 
-  // Unwrap @graph array
-  if (Array.isArray(node["@graph"])) {
-    for (const child of node["@graph"]) {
-      const found = findRecipeNode(child);
-      if (found) return found;
-    }
+  if (Array.isArray(jsonld)) {
+    for (const child of jsonld) findAllRecipeNodes(child, found);
+    return found;
   }
 
-  // Array at root
-  if (Array.isArray(jsonld)) {
-    for (const child of jsonld) {
-      const found = findRecipeNode(child);
-      if (found) return found;
-    }
-    return null;
+  if (Array.isArray(node["@graph"])) {
+    for (const child of node["@graph"]) findAllRecipeNodes(child, found);
+    return found;
   }
 
   const type = node["@type"];
   if (type === "Recipe" || (Array.isArray(type) && type.includes("Recipe"))) {
-    return node;
+    found.push(node);
   }
 
-  return null;
+  return found;
+}
+
+function findRecipeNode(jsonld: unknown): SchemaNode | null {
+  const all = findAllRecipeNodes(jsonld);
+  return all[0] ?? null;
 }
 
 function extractServingsNumber(raw: string | number | null | undefined): number | null {
@@ -130,17 +162,25 @@ function extractIngredientLines(raw: unknown): string[] {
   return [];
 }
 
-function extractFromJsonLd(scripts: string[]): SchemaNode | null {
+function extractFromJsonLd(scripts: string[]): {
+  node: SchemaNode | null;
+  totalFound: number;
+} {
+  let totalFound = 0;
   for (const src of scripts) {
     try {
       const parsed = JSON.parse(src);
-      const node = findRecipeNode(parsed);
-      if (node) return node;
+      const nodes = findAllRecipeNodes(parsed);
+      totalFound += nodes.length;
+      if (nodes.length > 0 && totalFound === nodes.length) {
+        // First script block that had recipes — return first recipe
+        return { node: nodes[0], totalFound };
+      }
     } catch {
       // Malformed JSON-LD — skip
     }
   }
-  return null;
+  return { node: null, totalFound };
 }
 
 // ─── Plain-text extraction from HTML ──────────────────────────────────────────
@@ -243,6 +283,32 @@ export async function fetchUrl(rawUrl: string): Promise<FetchResult> {
   }
 
   const { url } = validated;
+
+  // Video hosts serve HTML but never contain parseable recipe content.
+  if (isVideoUrl(url)) {
+    return {
+      rawContent: "",
+      extracted: {
+        method: "schema_org",
+        title: null,
+        servings: null,
+        ingredientLines: [],
+        instructionText: "",
+        baseConfidence: 0,
+        warnings: [
+          {
+            code: "URL_VIDEO_DETECTED",
+            message:
+              "This URL points to a video page. Recipe text cannot be extracted from video content. " +
+              "Paste the recipe text directly instead.",
+            field: null,
+            context: rawUrl,
+          },
+        ],
+      },
+    };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -326,11 +392,21 @@ export async function fetchUrl(rawUrl: string): Promise<FetchResult> {
       .querySelectorAll('script[type="application/ld+json"]')
       .map((s) => s.text);
 
-    const schemaRecipe = extractFromJsonLd(scripts);
+    const { node: schemaRecipe, totalFound } = extractFromJsonLd(scripts);
 
     if (schemaRecipe) {
       const ingredientLines = extractIngredientLines(schemaRecipe["recipeIngredient"]);
       const instructionText = extractInstructionText(schemaRecipe["recipeInstructions"]);
+
+      if (totalFound > 1) {
+        extraWarnings.push({
+          code: "URL_MULTIPLE_RECIPES",
+          message: `${totalFound} recipes found on this page — only the first was imported. ` +
+            `Import the others separately if needed.`,
+          field: null,
+          context: rawUrl,
+        });
+      }
 
       return {
         rawContent: html,

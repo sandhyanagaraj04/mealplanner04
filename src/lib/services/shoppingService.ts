@@ -109,6 +109,37 @@ export async function initializeShoppingStates(planId: string, userId: string): 
   });
 }
 
+// ─── Potential duplicate detection ───────────────────────────────────────────
+// Finds pairs of unresolved items whose names share a significant word (> 3 chars).
+// These are likely the same ingredient from two recipes entered differently,
+// e.g. "garlic clove" and "crushed garlic".
+
+function significantWords(name: string): Set<string> {
+  return new Set(
+    name
+      .toLowerCase()
+      .split(/[\s,()]+/)
+      .filter((w) => w.length > 3)
+  );
+}
+
+function detectPotentialDuplicates(
+  unresolved: import("@/types").ShoppingListItem[]
+): [string, string][] {
+  const pairs: [string, string][] = [];
+  for (let i = 0; i < unresolved.length; i++) {
+    const wa = significantWords(unresolved[i].ingredientName);
+    for (let j = i + 1; j < unresolved.length; j++) {
+      const wb = significantWords(unresolved[j].ingredientName);
+      const overlap = [...wa].some((w) => wb.has(w));
+      if (overlap) {
+        pairs.push([unresolved[i].ingredientName, unresolved[j].ingredientName]);
+      }
+    }
+  }
+  return pairs;
+}
+
 // ─── Aggregation ──────────────────────────────────────────────────────────────
 
 export async function getShoppingList(planId: string, userId: string): Promise<ShoppingList | null> {
@@ -271,11 +302,19 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
 
   const unresolvedCount = items.filter((i) => !i.ingredientId).length;
 
+  // ── Potential duplicate detection ─────────────────────────────────────────
+  // Scan unresolved items (no ingredientId) for pairs that share a significant word
+  // (> 3 chars). These may be the same ingredient entered differently by two recipes.
+  const potentialDuplicates = detectPotentialDuplicates(
+    items.filter((i) => !i.ingredientId)
+  );
+
   return {
     mealPlanWeekId: planId,
     weekStart: plan.weekStart.toISOString().slice(0, 10),
     items,
     unresolvedCount,
+    potentialDuplicates,
   };
 }
 

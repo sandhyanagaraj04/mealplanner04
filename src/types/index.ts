@@ -29,6 +29,7 @@ export type IngestionStatus = "draft" | "confirmed" | "discarded";
 export type WarningCode =
   | "MISSING_TITLE"
   | "MISSING_SERVINGS"
+  | "NO_INGREDIENTS_FOUND"
   | "INGREDIENT_NO_QUANTITY"
   | "INGREDIENT_NO_UNIT"
   | "INGREDIENT_NO_MATCH"
@@ -37,6 +38,8 @@ export type WarningCode =
   | "URL_TIMEOUT"
   | "URL_NOT_HTML"
   | "URL_NO_STRUCTURED_DATA"
+  | "URL_VIDEO_DETECTED"
+  | "URL_MULTIPLE_RECIPES"
   | "URL_PRIVATE_HOST"
   | "URL_FETCH_PARTIAL"
   | "STEP_TOO_SHORT"
@@ -44,7 +47,8 @@ export type WarningCode =
   | "LOW_CONFIDENCE"
   | "SECTION_DETECTION_FAILED"
   | "SERVINGS_AMBIGUOUS"
-  | "UNIT_CONVERSION_IMPOSSIBLE";
+  | "UNIT_CONVERSION_IMPOSSIBLE"
+  | "SHOPPING_POTENTIAL_DUPLICATE";
 
 export interface ParseWarning {
   code: WarningCode;
@@ -195,6 +199,9 @@ export interface ShoppingList {
   weekStart: string;
   items: ShoppingListItem[];
   unresolvedCount: number;
+  // Pairs of unresolved ingredient names that share words and may be duplicates.
+  // Each tuple is [nameA, nameB] from items in the unresolved category.
+  potentialDuplicates: [string, string][];
 }
 
 // ─── Service input/output types ────────────────────────────────────────────────

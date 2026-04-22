@@ -115,7 +115,7 @@ export async function addMealPlanItem(planId: string, userId: string, data: AddI
   });
   if (!recipe) return { error: "recipe_not_found" as const };
 
-  const scaleFactor = data.servings / recipe.servings;
+  const scaleFactor = recipe.servings > 0 ? data.servings / recipe.servings : 1;
 
   try {
     const item = await db.mealPlanItem.create({

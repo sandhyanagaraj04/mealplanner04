@@ -5,6 +5,32 @@ import { useRouter } from "next/navigation";
 
 type Mode = "url" | "text";
 
+const VIDEO_HOSTNAME_PATTERNS = [
+  /^(www\.)?youtube\.com$/,
+  /^youtu\.be$/,
+  /^(www\.)?vimeo\.com$/,
+  /^(www\.)?tiktok\.com$/,
+  /^vm\.tiktok\.com$/,
+  /^(www\.)?twitch\.tv$/,
+  /^(www\.)?dailymotion\.com$/,
+];
+
+function isVideoUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    if (VIDEO_HOSTNAME_PATTERNS.some((re) => re.test(u.hostname))) return true;
+    if (
+      /^(www\.)?instagram\.com$/.test(u.hostname) &&
+      /^\/(reel|p)\//.test(u.pathname)
+    ) {
+      return true;
+    }
+  } catch {
+    // not a valid URL yet — no warning
+  }
+  return false;
+}
+
 export default function IngestPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("url");
@@ -12,6 +38,8 @@ export default function IngestPage() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const videoWarning = mode === "url" && url.trim().length > 0 && isVideoUrl(url.trim());
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,7 +69,9 @@ export default function IngestPage() {
     }
   }
 
-  const canSubmit = mode === "url" ? url.trim().length > 0 : text.trim().length >= 10;
+  const canSubmit =
+    !videoWarning &&
+    (mode === "url" ? url.trim().length > 0 : text.trim().length >= 10);
 
   return (
     <div className="flex flex-col gap-6 pt-2">
@@ -86,12 +116,30 @@ export default function IngestPage() {
               disabled={loading}
               autoFocus
             />
+            {videoWarning && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                <strong>Video URL detected.</strong> Recipe text cannot be extracted from video
+                pages. If this recipe has a written version, paste the text directly using{" "}
+                <button
+                  type="button"
+                  className="underline font-medium"
+                  onClick={() => { setMode("text"); setUrl(""); }}
+                >
+                  Paste Text
+                </button>{" "}
+                instead.
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
             <label htmlFor="text" className="text-sm font-medium">
               Recipe text
             </label>
+            <p className="text-xs text-[var(--muted)]">
+              Include an &ldquo;Ingredients&rdquo; heading and an &ldquo;Instructions&rdquo; heading
+              for the best results. The parser works best with clearly structured text.
+            </p>
             <textarea
               id="text"
               value={text}

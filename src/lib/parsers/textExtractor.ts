@@ -186,13 +186,29 @@ export function extractFromText(rawText: string): ExtractedContent {
   }
 
   // ── Strategy 3: heuristic classification ────────────────────────────────────
-  warnings.push({
-    code: "SECTION_DETECTION_FAILED",
-    message:
-      'No "Ingredients" or "Instructions" headers found. Used heuristic classification — review carefully.',
-    field: null,
-    context: null,
-  });
+  // Detect "wall of text" — long unstructured input where heuristics will likely fail.
+  // Threshold: > 80 non-empty lines or > 4000 chars with no headers found.
+  const isWallOfText =
+    nonEmpty.length > 80 || rawText.length > 4000;
+
+  if (isWallOfText) {
+    warnings.push({
+      code: "SECTION_DETECTION_FAILED",
+      message:
+        "The text is long and has no recognisable section headers. " +
+        "Add \"Ingredients\" and \"Instructions\" labels to help the parser, or split the text into two separate pastes.",
+      field: null,
+      context: null,
+    });
+  } else {
+    warnings.push({
+      code: "SECTION_DETECTION_FAILED",
+      message:
+        'No "Ingredients" or "Instructions" headers found. Used heuristic classification — review carefully.',
+      field: null,
+      context: null,
+    });
+  }
 
   const title = extractTitle(nonEmpty);
   const toClassify = title
@@ -201,13 +217,16 @@ export function extractFromText(rawText: string): ExtractedContent {
 
   const { ingredientLines, instructionLines } = classifyLines(toClassify);
 
+  // For very long unstructured text, lower the confidence further.
+  const heuristicConfidence = isWallOfText ? 0.2 : 0.4;
+
   return {
     method: "heuristic",
     title,
     servings,
     ingredientLines,
     instructionText: instructionLines.join("\n"),
-    baseConfidence: 0.4,
+    baseConfidence: heuristicConfidence,
     warnings,
   };
 }

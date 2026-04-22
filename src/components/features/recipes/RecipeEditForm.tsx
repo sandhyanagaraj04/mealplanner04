@@ -76,9 +76,17 @@ export default function RecipeEditForm({ recipe }: { recipe: Recipe }) {
     setError(null);
     try {
       const res = await fetch(`/api/recipes/${recipe.id}`, { method: "DELETE" });
-      if (!res.ok && res.status !== 204) throw new Error("Delete failed");
-      router.push("/recipes");
-      router.refresh();
+      if (res.status === 204) {
+        router.push("/recipes");
+        router.refresh();
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      if (res.status === 409) {
+        // Recipe is in use — surface the message from the API
+        throw new Error(data?.error ?? "Cannot delete: recipe is in use by meal plan(s).");
+      }
+      throw new Error(data?.error ?? "Delete failed");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
       setDeleting(false);

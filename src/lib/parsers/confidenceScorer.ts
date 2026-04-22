@@ -78,6 +78,16 @@ export function generateWarnings(draft: {
     });
   }
 
+  if (draft.ingredients.length === 0) {
+    warnings.push({
+      code: "NO_INGREDIENTS_FOUND",
+      message:
+        "No ingredients were detected. Paste the ingredient list directly, or add them manually below.",
+      field: "ingredients",
+      context: null,
+    });
+  }
+
   if (draft.steps.length === 0) {
     warnings.push({
       code: "NO_STEPS_FOUND",
