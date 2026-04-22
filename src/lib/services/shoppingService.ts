@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { convertUnit, roundQty } from "@/lib/parsers/unitConverter";
+import { scaleQuantity } from "@/lib/parsers/ingredientScaler";
 import type {
   ShoppingList,
   ShoppingListItem,
@@ -75,7 +76,8 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
       const stateRow = stateByRi.get(ri.id);
 
       // Effective quantity: user override > scaled recipe quantity
-      const scaledQty = ri.quantity != null ? ri.quantity * item.scaleFactor : null;
+      // scaleQuantity handles null gracefully and rounds to human precision.
+      const scaledQty = scaleQuantity(ri.quantity, item.scaleFactor);
       const effectiveQty = stateRow?.quantityOverride ?? scaledQty;
       const effectiveUnit = stateRow?.unitOverride ?? ri.unit;
 

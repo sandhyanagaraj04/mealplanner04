@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { MealType } from "@/types";
+import ScaledIngredients from "@/components/features/planner/ScaledIngredients";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -189,6 +190,18 @@ export default function WeekPlanner({
 
   // Per-slot error flashes
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Which filled slots are showing their scaled ingredient list
+  const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(itemId: string) {
+    setExpandedSlots((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────
   const slotKey = (day: number, meal: MealType) => `${day}-${meal}`;
@@ -425,50 +438,67 @@ export default function WeekPlanner({
 
                     {item ? (
                       /* Filled slot */
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span
-                          className="flex-1 min-w-0 text-sm font-medium truncate"
-                          title={item.recipe.name}
-                        >
-                          {item.recipe.name}
-                        </span>
+                      <div>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {/* Recipe name — click to expand scaled ingredients */}
+                          <button
+                            type="button"
+                            onClick={() => toggleExpanded(item.id)}
+                            className="flex-1 min-w-0 text-left text-sm font-medium truncate hover:text-[var(--accent)] transition-colors"
+                            title={expandedSlots.has(item.id) ? "Hide ingredients" : "Show scaled ingredients"}
+                          >
+                            {item.recipe.name}
+                            <span className="ml-1 text-[var(--muted)] text-xs">
+                              {expandedSlots.has(item.id) ? "▴" : "▾"}
+                            </span>
+                          </button>
 
-                        {/* Servings control */}
-                        <div className="flex items-center gap-0.5 flex-shrink-0">
+                          {/* Servings control */}
+                          <div className="flex items-center gap-0.5 flex-shrink-0">
+                            <Btn
+                              onClick={() => updateServings(item, -1)}
+                              disabled={item.servings <= 1}
+                              title="Fewer servings"
+                              variant="ghost"
+                            >−</Btn>
+                            <span className="text-sm font-semibold w-5 text-center tabular-nums">
+                              {item.servings}
+                            </span>
+                            <Btn
+                              onClick={() => updateServings(item, 1)}
+                              title="More servings"
+                              variant="ghost"
+                            >+</Btn>
+                            <span className="text-xs text-[var(--muted)]">🧑</span>
+                          </div>
+
+                          {/* Copy */}
                           <Btn
-                            onClick={() => updateServings(item, -1)}
-                            disabled={item.servings <= 1}
-                            title="Fewer servings"
-                            variant="ghost"
-                          >−</Btn>
-                          <span className="text-sm font-semibold w-5 text-center tabular-nums">
-                            {item.servings}
-                          </span>
+                            onClick={() =>
+                              setCopySource(copySource?.id === item.id ? null : item)
+                            }
+                            title="Copy to another day"
+                            variant={copySource?.id === item.id ? "copy" : "ghost"}
+                          >
+                            {copySource?.id === item.id ? "📋✓" : "📋"}
+                          </Btn>
+
+                          {/* Remove */}
                           <Btn
-                            onClick={() => updateServings(item, 1)}
-                            title="More servings"
-                            variant="ghost"
-                          >+</Btn>
-                          <span className="text-xs text-[var(--muted)]">🧑</span>
+                            onClick={() => removeItem(item)}
+                            title="Remove"
+                            variant="danger"
+                          >✕</Btn>
                         </div>
 
-                        {/* Copy */}
-                        <Btn
-                          onClick={() =>
-                            setCopySource(copySource?.id === item.id ? null : item)
-                          }
-                          title="Copy to another day"
-                          variant={copySource?.id === item.id ? "copy" : "ghost"}
-                        >
-                          {copySource?.id === item.id ? "📋✓" : "📋"}
-                        </Btn>
-
-                        {/* Remove */}
-                        <Btn
-                          onClick={() => removeItem(item)}
-                          title="Remove"
-                          variant="danger"
-                        >✕</Btn>
+                        {/* Scaled ingredient list — lazy-loaded on expand */}
+                        {expandedSlots.has(item.id) && (
+                          <ScaledIngredients
+                            recipeId={item.recipe.id}
+                            recipeDefaultServings={item.recipe.servings}
+                            planServings={item.servings}
+                          />
+                        )}
                       </div>
                     ) : isPickerOpen ? (
                       /* Recipe picker */
