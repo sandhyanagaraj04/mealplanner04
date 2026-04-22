@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { convertUnit, roundQty } from "@/lib/parsers/unitConverter";
+import { convertUnit, roundQty, getUnitDimension } from "@/lib/parsers/unitConverter";
 import { scaleQuantity } from "@/lib/parsers/ingredientScaler";
 import type {
   ShoppingList,
@@ -11,16 +11,105 @@ import type {
 } from "@/types";
 import type { UpdateIngredientState } from "@/lib/validations/mealplan";
 
+// ─── Merge-warning text ────────────────────────────────────────────────────────
+// Called when totalQuantity cannot be computed due to incompatible units or
+// missing quantities. Returns a short, human-readable explanation.
+
+type MergeFailReason =
+  | { kind: "unknown_qty" }
+  | { kind: "mixed_unit_presence" }
+  | { kind: "incompatible_dims"; unitA: string; unitB: string }
+  | { kind: "same_dim_no_convert"; unitA: string; unitB: string };
+
+function mergeWarningText(r: MergeFailReason): string {
+  switch (r.kind) {
+    case "unknown_qty":
+      return "Some quantities unknown — amounts shown per meal";
+    case "mixed_unit_presence":
+      return "Mixed: some sources have no unit — amounts shown per meal";
+    case "incompatible_dims": {
+      const dA = getUnitDimension(r.unitA);
+      const dB = getUnitDimension(r.unitB);
+      if (dA !== dB)
+        return `Cannot combine ${dA} (${r.unitA}) and ${dB} (${r.unitB}) — amounts shown per meal`;
+      return `Different units (${r.unitA}, ${r.unitB}) — amounts shown per meal`;
+    }
+    case "same_dim_no_convert":
+      return `Cannot convert ${r.unitA} ↔ ${r.unitB} — amounts shown per meal`;
+  }
+}
+
+// ─── Grouping key ─────────────────────────────────────────────────────────────
+// Priority: matched ingredient ID → normalizedName → raw text.
+// Using normalizedName lets "finely chopped garlic" and "minced garlic" share a
+// group even when there is no canonical Ingredient DB match.
+
+function groupKey(ri: {
+  ingredientId: string | null;
+  normalizedName: string | null;
+  rawText: string;
+}): string {
+  if (ri.ingredientId) return `ingredient:${ri.ingredientId}`;
+  if (ri.normalizedName) return `normalized:${ri.normalizedName.toLowerCase()}`;
+  return `raw:${ri.rawText.toLowerCase().trim()}`;
+}
+
+// ─── Initialise state rows ────────────────────────────────────────────────────
+// Ensures every (MealPlanItem × RecipeIngredient) pair has a state row so the
+// client can always PATCH without needing to create first.
+
+export async function initializeShoppingStates(planId: string, userId: string): Promise<void> {
+  const plan = await db.mealPlanWeek.findFirst({
+    where: { id: planId, userId },
+    select: {
+      items: { select: { id: true, recipeId: true } },
+    },
+  });
+  if (!plan || plan.items.length === 0) return;
+
+  const recipeIds = [...new Set(plan.items.map((i) => i.recipeId))];
+  const riRows = await db.recipeIngredient.findMany({
+    where: { recipeId: { in: recipeIds } },
+    select: { id: true, recipeId: true },
+  });
+
+  // Build expected pairs
+  const riByRecipe = new Map<string, string[]>();
+  for (const ri of riRows) {
+    const arr = riByRecipe.get(ri.recipeId) ?? [];
+    arr.push(ri.id);
+    riByRecipe.set(ri.recipeId, arr);
+  }
+
+  const pairs: { mealPlanItemId: string; recipeIngredientId: string }[] = [];
+  for (const item of plan.items) {
+    for (const riId of riByRecipe.get(item.recipeId) ?? []) {
+      pairs.push({ mealPlanItemId: item.id, recipeIngredientId: riId });
+    }
+  }
+  if (pairs.length === 0) return;
+
+  // Skip pairs that already have a row
+  const existing = await db.mealPlanIngredientState.findMany({
+    where: { mealPlanItemId: { in: plan.items.map((i) => i.id) } },
+    select: { mealPlanItemId: true, recipeIngredientId: true },
+  });
+  const existingSet = new Set(
+    existing.map((e) => `${e.mealPlanItemId}:${e.recipeIngredientId}`)
+  );
+
+  const missing = pairs.filter(
+    (p) => !existingSet.has(`${p.mealPlanItemId}:${p.recipeIngredientId}`)
+  );
+  if (missing.length === 0) return;
+
+  await db.mealPlanIngredientState.createMany({
+    data: missing.map((p) => ({ ...p, state: "PENDING" })),
+    skipDuplicates: true,
+  });
+}
+
 // ─── Aggregation ──────────────────────────────────────────────────────────────
-// Groups ingredients across all meal plan items for the week.
-//
-// Same canonical ingredient (same ingredientId) → same group.
-// No canonical match → grouped by normalised rawText.
-//
-// Quantities are summed after unit conversion to the group's target unit
-// (the first non-null unit seen in the group). If conversion is impossible
-// (e.g. volume vs weight) the group's totalQuantity is set to null, and the
-// UI must show per-source quantities instead.
 
 export async function getShoppingList(planId: string, userId: string): Promise<ShoppingList | null> {
   const plan = await db.mealPlanWeek.findFirst({
@@ -46,17 +135,14 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
 
   if (!plan) return null;
 
-  // Fetch all recipe ingredients referenced in the plan
   const recipeIds = [...new Set(plan.items.map((i) => i.recipeId))];
   const ingredients = await db.recipeIngredient.findMany({
     where: { recipeId: { in: recipeIds } },
     include: { ingredient: true },
   });
 
-  // Index recipe ingredients by id for O(1) lookup
   const riMap = new Map(ingredients.map((ri) => [ri.id, ri]));
 
-  // Index shopping states: mealPlanItemId → Map<recipeIngredientId, stateRow>
   type StateRow = (typeof plan.items)[0]["ingredientStates"][0];
   const stateIndex = new Map<string, Map<string, StateRow>>();
   for (const item of plan.items) {
@@ -67,6 +153,8 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
 
   // ── Build groups ───────────────────────────────────────────────────────────
   const groups = new Map<string, ShoppingListItem>();
+  // Track first merge failure per group key
+  const mergeFailures = new Map<string, MergeFailReason>();
 
   for (const item of plan.items) {
     const recipeIngredients = ingredients.filter((ri) => ri.recipeId === item.recipeId);
@@ -75,8 +163,6 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
     for (const ri of recipeIngredients) {
       const stateRow = stateByRi.get(ri.id);
 
-      // Effective quantity: user override > scaled recipe quantity
-      // scaleQuantity handles null gracefully and rounds to human precision.
       const scaledQty = scaleQuantity(ri.quantity, item.scaleFactor);
       const effectiveQty = stateRow?.quantityOverride ?? scaledQty;
       const effectiveUnit = stateRow?.unitOverride ?? ri.unit;
@@ -84,6 +170,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
       const source: ShoppingSource = {
         stateId: stateRow?.id ?? null,
         mealPlanItemId: item.id,
+        recipeIngredientId: ri.id,
         dayOfWeek: item.dayOfWeek as DayOfWeek,
         mealType: item.mealType as MealType,
         recipeName: item.recipe.name,
@@ -95,35 +182,43 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
         note: stateRow?.note ?? null,
       };
 
-      const key = ri.ingredientId
-        ? `ingredient:${ri.ingredientId}`
-        : `raw:${ri.rawText.toLowerCase().trim()}`;
+      const key = groupKey(ri);
 
       if (!groups.has(key)) {
         groups.set(key, {
           ingredientId: ri.ingredientId ?? null,
-          ingredientName: ri.ingredient?.name ?? ri.rawText,
+          ingredientName: ri.ingredient?.name ?? ri.displayName ?? ri.rawText,
           category: ri.ingredient?.category ?? null,
           totalQuantity: effectiveQty != null ? roundQty(effectiveQty) : null,
           unit: effectiveUnit,
           unitConverted: false,
+          sourceCount: 1,
+          mergeWarning: null,
           sources: [source],
         });
+        if (effectiveQty == null) {
+          mergeFailures.set(key, { kind: "unknown_qty" });
+        }
         continue;
       }
 
       const group = groups.get(key)!;
       group.sources.push(source);
+      group.sourceCount += 1;
 
       // ── Unit aggregation with conversion ──────────────────────────────────
+      if (mergeFailures.has(key)) {
+        // Already failed — just accumulate sources
+        continue;
+      }
+
       if (effectiveQty == null || group.totalQuantity == null) {
-        // One side is null — can't aggregate
         group.totalQuantity = null;
+        mergeFailures.set(key, { kind: "unknown_qty" });
         continue;
       }
 
       if (effectiveUnit === null && group.unit === null) {
-        // Both unitless — sum as counts
         group.totalQuantity = roundQty(group.totalQuantity + effectiveQty);
         continue;
       }
@@ -133,22 +228,41 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
         continue;
       }
 
-      // Units differ — attempt conversion to group's target unit
-      if (effectiveUnit != null && group.unit != null) {
-        const converted = convertUnit(effectiveQty, effectiveUnit, group.unit);
-        if (converted !== null) {
-          group.totalQuantity = roundQty(group.totalQuantity + converted);
-          group.unitConverted = true;
-          continue;
-        }
+      // Units differ — check for mixed unit presence first
+      if (effectiveUnit === null || group.unit === null) {
+        group.totalQuantity = null;
+        mergeFailures.set(key, { kind: "mixed_unit_presence" });
+        continue;
       }
 
-      // Conversion impossible (different dimensions) — null out total
+      // Both have units but they differ — attempt dimensional conversion
+      const converted = convertUnit(effectiveQty, effectiveUnit, group.unit);
+      if (converted !== null) {
+        group.totalQuantity = roundQty(group.totalQuantity + converted);
+        group.unitConverted = true;
+        continue;
+      }
+
+      // Conversion failed — record why
       group.totalQuantity = null;
+      const dA = getUnitDimension(group.unit);
+      const dB = getUnitDimension(effectiveUnit);
+      mergeFailures.set(
+        key,
+        dA !== dB
+          ? { kind: "incompatible_dims", unitA: group.unit, unitB: effectiveUnit }
+          : { kind: "same_dim_no_convert", unitA: group.unit, unitB: effectiveUnit }
+      );
     }
   }
 
-  // ── Sort: resolved ingredients first, then alphabetically ─────────────────
+  // Stamp merge warnings onto groups
+  for (const [key, reason] of mergeFailures) {
+    const group = groups.get(key);
+    if (group) group.mergeWarning = mergeWarningText(reason);
+  }
+
+  // ── Sort: resolved first, then alphabetically ──────────────────────────────
   const items = [...groups.values()].sort((a, b) => {
     if (a.ingredientId && !b.ingredientId) return -1;
     if (!a.ingredientId && b.ingredientId) return 1;

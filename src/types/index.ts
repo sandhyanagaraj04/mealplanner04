@@ -164,6 +164,7 @@ export interface PaginatedResponse<T> {
 export interface ShoppingSource {
   stateId: string | null;
   mealPlanItemId: string;
+  recipeIngredientId: string;
   dayOfWeek: DayOfWeek;
   mealType: MealType;
   recipeName: string;
@@ -181,8 +182,11 @@ export interface ShoppingListItem {
   category: string | null;
   totalQuantity: number | null;
   unit: string | null;
-  // Whether totalQuantity required unit conversion (may affect precision)
   unitConverted: boolean;
+  // How many distinct meal plan slots need this ingredient
+  sourceCount: number;
+  // Non-null when quantities could not be merged (incompatible units, missing qty, etc.)
+  mergeWarning: string | null;
   sources: ShoppingSource[];
 }
 

@@ -65,12 +65,20 @@ export default async function PlannerPage({ params }: Params) {
 
   return (
     <div className="flex flex-col gap-4 pt-2">
-      <Link
-        href="/plans"
-        className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors self-start"
-      >
-        ← All Plans
-      </Link>
+      <div className="flex items-center justify-between gap-4">
+        <Link
+          href="/plans"
+          className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+        >
+          ← All Plans
+        </Link>
+        <Link
+          href={`/plans/${plan.id}/shopping`}
+          className="text-sm rounded-lg border border-[var(--border)] px-3 py-1.5 text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+        >
+          Shopping List →
+        </Link>
+      </div>
 
       <WeekPlanner
         planId={plan.id}
