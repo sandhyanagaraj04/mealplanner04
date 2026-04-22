@@ -30,9 +30,11 @@ async function enrichIngredients(lines: string[]): Promise<IngredientDraftLine[]
     parsed.map(async (pi, idx): Promise<IngredientDraftLine> => {
       let ingredientId: string | null = null;
 
-      if (pi.name) {
+      if (pi.normalizedName ?? pi.displayName) {
         try {
-          const match = await findIngredientByName(pi.name);
+          const match = await findIngredientByName(
+            pi.normalizedName ?? pi.displayName!
+          );
           ingredientId = match?.id ?? null;
         } catch {
           // DB lookup failure is non-fatal — raw line preserved
@@ -41,10 +43,12 @@ async function enrichIngredients(lines: string[]): Promise<IngredientDraftLine[]
 
       const draft: IngredientDraftLine = {
         rawText: pi.rawText,
+        displayName: pi.displayName,
+        normalizedName: pi.normalizedName,
         quantity: pi.quantity,
+        quantityMax: pi.quantityMax,
         unit: pi.unit,
-        name: pi.name,
-        notes: pi.notes,
+        preparationNote: pi.preparationNote,
         isOptional: pi.isOptional,
         ingredientId,
         confidence: 0, // computed below

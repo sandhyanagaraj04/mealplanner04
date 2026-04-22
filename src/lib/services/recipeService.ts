@@ -66,8 +66,9 @@ export async function createRecipe(userId: string, data: RecipeCreate) {
   // Attempt to auto-link each parsed ingredient to the canonical Ingredient table
   const ingredientLinks = await Promise.all(
     parsedIngredients.map(async (pi) => {
-      if (!pi.name) return null;
-      const match = await findIngredientByName(pi.name);
+      const lookupName = pi.normalizedName ?? pi.displayName;
+      if (!lookupName) return null;
+      const match = await findIngredientByName(lookupName);
       return match?.id ?? null;
     })
   );
@@ -92,10 +93,13 @@ export async function createRecipe(userId: string, data: RecipeCreate) {
         recipeId: recipe.id,
         sortOrder: idx,
         rawText: pi.rawText,
+        displayName: pi.displayName,
+        normalizedName: pi.normalizedName,
         quantity: pi.quantity,
+        quantityMax: pi.quantityMax,
         unit: pi.unit,
         ingredientId: ingredientLinks[idx],
-        notes: pi.notes,
+        preparationNote: pi.preparationNote,
         isOptional: pi.isOptional,
       })),
     });
@@ -135,8 +139,9 @@ export async function updateRecipe(id: string, userId: string, data: RecipeUpdat
       const parsed = parseIngredientsBlock(data.rawIngredients!);
       const links = await Promise.all(
         parsed.map(async (pi) => {
-          if (!pi.name) return null;
-          const match = await findIngredientByName(pi.name);
+          const lookupName = pi.normalizedName ?? pi.displayName;
+          if (!lookupName) return null;
+          const match = await findIngredientByName(lookupName);
           return match?.id ?? null;
         })
       );
@@ -145,10 +150,13 @@ export async function updateRecipe(id: string, userId: string, data: RecipeUpdat
           recipeId: id,
           sortOrder: idx,
           rawText: pi.rawText,
+          displayName: pi.displayName,
+          normalizedName: pi.normalizedName,
           quantity: pi.quantity,
+          quantityMax: pi.quantityMax,
           unit: pi.unit,
           ingredientId: links[idx],
-          notes: pi.notes,
+          preparationNote: pi.preparationNote,
           isOptional: pi.isOptional,
         })),
       });
@@ -225,7 +233,7 @@ export async function patchRecipeIngredient(
       ...(data.quantity !== undefined && { quantity: data.quantity }),
       ...(data.unit !== undefined && { unit: data.unit }),
       ...(data.ingredientId !== undefined && { ingredientId: data.ingredientId }),
-      ...(data.notes !== undefined && { notes: data.notes }),
+      ...(data.notes !== undefined && { preparationNote: data.notes }),
       ...(data.isOptional !== undefined && { isOptional: data.isOptional }),
     },
     include: { ingredient: true },

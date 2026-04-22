@@ -8,7 +8,7 @@ import type {
 // ─── Per-ingredient scoring ───────────────────────────────────────────────────
 
 export function scoreIngredientLine(line: IngredientDraftLine): number {
-  const hasName = line.name !== null && line.name.trim().length > 0;
+  const hasName = line.displayName !== null && line.displayName.trim().length > 0;
   const hasQty = line.quantity !== null;
   const hasUnit = line.unit !== null;
   const hasMatch = line.ingredientId !== null;
@@ -102,7 +102,7 @@ export function generateWarnings(draft: {
   let noUnitCount = 0;
 
   draft.ingredients.forEach((line, idx) => {
-    if (line.name === null && line.quantity === null) {
+    if (line.displayName === null && line.quantity === null) {
       warnings.push({
         code: "INGREDIENT_PARSE_FAILED",
         message: `Could not parse this ingredient line. Raw text preserved.`,
@@ -112,10 +112,10 @@ export function generateWarnings(draft: {
     } else {
       if (line.quantity === null && !line.isOptional) noQtyCount++;
       if (line.unit === null && line.quantity !== null) noUnitCount++;
-      if (line.ingredientId === null && line.name !== null) {
+      if (line.ingredientId === null && line.displayName !== null) {
         warnings.push({
           code: "INGREDIENT_NO_MATCH",
-          message: `"${line.name}" has no match in the ingredient database. Link it manually.`,
+          message: `"${line.displayName}" has no match in the ingredient database. Link it manually.`,
           field: `ingredients[${idx}]`,
           context: line.rawText,
         });

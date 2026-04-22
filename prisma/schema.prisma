@@ -114,17 +114,29 @@ model RecipeIngredient {
   recipe    Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   sortOrder Int    @default(0)
 
-  // Immutable raw text from the original recipe input
+  // Immutable raw text — NEVER overwritten, always the ground truth
   rawText String
 
-  // Parsed fields — all nullable; null means parser could not resolve,
-  // user should correct via PATCH /api/recipes/:id
-  quantity     Float?
-  unit         String? // normalised: "g", "ml", "cup", "tsp", …
+  // Human-readable name as it appears in the recipe, after qty+unit stripped.
+  // e.g. "finely chopped yellow onions"
+  displayName    String?
+  // Canonical form for DB matching — no prep words, lowercase, singularized.
+  // null when normalisation was not confident enough to attempt.
+  // e.g. "onion"
+  normalizedName String?
+
+  // Quantity — primary (or minimum for ranges)
+  quantity    Float?
+  // Upper bound for ranges ("3–4 cloves"); null when not a range
+  quantityMax Float?
+  unit        String? // normalised: "g", "ml", "cup", "tsp", …
+
   ingredientId String?
   ingredient   Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
-  notes        String? // "finely chopped", "at room temperature"
-  isOptional   Boolean @default(false)
+
+  // Prep instructions extracted from the line: "finely chopped", "to taste"
+  preparationNote String?
+  isOptional      Boolean @default(false)
 
   ingredientStates MealPlanIngredientState[]
 

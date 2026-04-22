@@ -106,11 +106,14 @@ export async function confirmIngestion(
         data: draft.ingredients.map((line, idx) => ({
           recipeId: recipe.id,
           sortOrder: idx,
-          rawText: line.rawText,       // always preserved
+          rawText: line.rawText,
+          displayName: line.displayName,
+          normalizedName: line.normalizedName,
           quantity: line.quantity,
+          quantityMax: line.quantityMax,
           unit: line.unit,
           ingredientId: line.ingredientId,
-          notes: line.notes,
+          preparationNote: line.preparationNote,
           isOptional: line.isOptional,
         })),
       });

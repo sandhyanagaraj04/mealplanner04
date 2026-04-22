@@ -56,18 +56,21 @@ export interface ParseWarning {
 }
 
 // ─── Per-ingredient draft line ─────────────────────────────────────────────────
-// rawText is always set. All other fields are nullable — null = parser could not
-// determine; the UI must surface nulls so the user can correct them.
+// Stored in RecipeIngestion.parsedDraft JSON.
+// rawText is ALWAYS set. All other fields are nullable — null = parser could not
+// determine with sufficient confidence; the UI must surface nulls for correction.
 
 export interface IngredientDraftLine {
-  rawText: string;        // immutable source — never discarded
+  rawText: string;           // immutable source — never discarded
+  displayName: string | null;    // full name as written: "finely chopped onions"
+  normalizedName: string | null; // canonical: "onion" — null if unsure
   quantity: number | null;
-  unit: string | null;    // normalised unit string, e.g. "g", "cup"
-  name: string | null;    // ingredient name after quantity + unit
-  notes: string | null;   // prep notes, e.g. "finely chopped"
+  quantityMax: number | null;    // non-null for ranges: "3–4" → max: 4
+  unit: string | null;
+  preparationNote: string | null; // "finely chopped", "to taste"
   isOptional: boolean;
-  ingredientId: string | null;  // null = no canonical Ingredient match found
-  confidence: number;     // 0–1 per this line
+  ingredientId: string | null;   // null = no canonical Ingredient DB match
+  confidence: number;            // 0–1 per this line (see confidenceScorer)
 }
 
 export interface StepDraftLine {
@@ -105,14 +108,33 @@ export interface ExtractedContent {
 }
 
 // ─── Parser output (single ingredient line) ────────────────────────────────────
+// Returned by ingredientParser.parseIngredientLine.
+// All nullable fields mean "could not determine" — never silently guessed.
+// _prepNoteSource is internal; used by confidenceScorer then dropped.
+
+export type PrepNoteSource = "comma" | "paren" | "prefix" | null;
 
 export interface ParsedIngredient {
   rawText: string;
+
+  // What the user sees: full name as written, prep words included
+  displayName: string | null;
+  // Canonical form: lowercase, no prep words, singularized where safe
+  // null when normalisation confidence was too low to attempt
+  normalizedName: string | null;
+
+  // Quantity: primary value (or lower bound for ranges)
   quantity: number | null;
+  // Upper bound when the original text was a range ("3–4 cloves")
+  quantityMax: number | null;
   unit: string | null;
-  name: string | null;
-  notes: string | null;
+
+  // Extracted prep instruction — "finely chopped", "to taste", "at room temp"
+  preparationNote: string | null;
   isOptional: boolean;
+
+  // Internal flag — how the prep note was found; affects per-line confidence
+  _prepNoteSource: PrepNoteSource;
 }
 
 // ─── API response envelope ─────────────────────────────────────────────────────
