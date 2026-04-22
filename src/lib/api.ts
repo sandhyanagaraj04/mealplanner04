@@ -31,7 +31,14 @@ export function forbidden(error = "Forbidden"): NextResponse {
   return NextResponse.json({ ok: false, error }, { status: 403 });
 }
 
+export function unauthorized(): NextResponse {
+  return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+}
+
 export function serverError(error: unknown): NextResponse {
+  if (error instanceof Error && error.name === "AuthError") {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
   const message = error instanceof Error ? error.message : "Internal server error";
   console.error("[API error]", error);
   return NextResponse.json({ ok: false, error: message }, { status: 500 });

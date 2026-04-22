@@ -1,6 +1,6 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { TEST_USER_ID } from "@/lib/auth";
+import { auth } from "@/auth";
 import { initializeShoppingStates, getShoppingList } from "@/lib/services/shoppingService";
 import ShoppingListView from "@/components/features/shopping/ShoppingListView";
 
@@ -17,12 +17,14 @@ function formatWeekLabel(isoDate: string): string {
 }
 
 export default async function ShoppingPage({ params }: Params) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
+
   const { planId } = await params;
 
-  // Ensure every (item × ingredient) pair has a state row — idempotent.
-  await initializeShoppingStates(planId, TEST_USER_ID);
-
-  const list = await getShoppingList(planId, TEST_USER_ID);
+  await initializeShoppingStates(planId, userId);
+  const list = await getShoppingList(planId, userId);
   if (!list) notFound();
 
   return (
