@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { parseRecipeInput } from "@/lib/parsers/recipeParser";
 import { findIngredientByName } from "@/lib/services/ingredientService";
-import type { IngestInput, ConfirmIngestionInput } from "@/lib/validations/ingest";
+import type { IngestInput, ConfirmIngestionInput, PatchDraftInput } from "@/lib/validations/ingest";
 import type { RecipeIngestionDraft } from "@/types";
+import { computeConfidence } from "@/lib/parsers/confidenceScorer";
 
 // ─── Ingest ───────────────────────────────────────────────────────────────────
 
@@ -150,6 +151,40 @@ export async function confirmIngestion(
       }),
     };
   });
+}
+
+// ─── Patch draft ─────────────────────────────────────────────────────────────
+// Merges user edits into the stored parsedDraft JSON without touching rawContent.
+// Confidence is recomputed from the updated fields.
+
+export async function patchIngestionDraft(
+  id: string,
+  userId: string,
+  patch: PatchDraftInput
+) {
+  const ingestion = await db.recipeIngestion.findFirst({ where: { id, userId } });
+  if (!ingestion) return { error: "not_found" as const };
+  if (ingestion.status !== "draft") return { error: "not_draft" as const };
+
+  const current = ingestion.parsedDraft as unknown as RecipeIngestionDraft;
+
+  const updated: RecipeIngestionDraft = {
+    ...current,
+    ...(patch.title !== undefined && { title: patch.title }),
+    ...(patch.servings !== undefined && { servings: patch.servings }),
+    ...(patch.ingredients !== undefined && { ingredients: patch.ingredients }),
+    ...(patch.steps !== undefined && { steps: patch.steps }),
+    warnings: current.warnings,
+  };
+
+  updated.confidence = computeConfidence(updated);
+
+  const result = await db.recipeIngestion.update({
+    where: { id },
+    data: { parsedDraft: updated as object, confidence: updated.confidence },
+  });
+
+  return { ingestion: result, draft: updated };
 }
 
 // ─── Discard ──────────────────────────────────────────────────────────────────
