@@ -18,6 +18,7 @@ import { parseIngredientLine, parseIngredientsBlock } from "@/lib/parsers/ingred
 import { parseInstructions } from "@/lib/parsers/instructionParser";
 import { computeConfidence, generateWarnings, scoreIngredientLine } from "@/lib/parsers/confidenceScorer";
 import { findIngredientByName } from "@/lib/services/ingredientService";
+import { log } from "@/lib/analytics/track";
 
 // ─── Ingredient enrichment ────────────────────────────────────────────────────
 // After basic parsing, attempt to link each ingredient to the canonical Ingredient table.
@@ -54,6 +55,13 @@ async function enrichIngredients(lines: string[]): Promise<IngredientDraftLine[]
         confidence: 0, // computed below
       };
       draft.confidence = scoreIngredientLine(draft);
+
+      if (draft.displayName == null && draft.quantity == null) {
+        log.parseFailure(pi.rawText, "no_display_name_no_quantity", { lineIndex: idx });
+      } else if (draft.confidence === 0) {
+        log.parseFailure(pi.rawText, "zero_confidence", { lineIndex: idx });
+      }
+
       return draft;
     })
   );

@@ -10,6 +10,7 @@ import type {
   MealType,
 } from "@/types";
 import type { UpdateIngredientState } from "@/lib/validations/mealplan";
+import { track } from "@/lib/analytics/track";
 
 // ─── Merge-warning text ────────────────────────────────────────────────────────
 // Called when totalQuantity cannot be computed due to incompatible units or
@@ -308,6 +309,15 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
   const potentialDuplicates = detectPotentialDuplicates(
     items.filter((i) => !i.ingredientId)
   );
+
+  track("shopping_list_generated", {
+    userId,
+    planId,
+    itemCount: items.length,
+    unresolvedCount,
+    potentialDuplicateCount: potentialDuplicates.length,
+    mergeWarningCount: items.filter((i) => i.mergeWarning !== null).length,
+  });
 
   return {
     mealPlanWeekId: planId,

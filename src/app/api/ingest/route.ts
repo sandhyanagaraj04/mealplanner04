@@ -7,6 +7,7 @@ import { getUserId } from "@/lib/auth";
 import { ingest, listIngestions } from "@/lib/services/ingestionService";
 import { IngestSchema } from "@/lib/validations/ingest";
 import { ok, created, badRequest, serverError, validationError, parsePagination } from "@/lib/api";
+import { track } from "@/lib/analytics/track";
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,6 +32,14 @@ export async function POST(req: NextRequest) {
 
     const parsed = IngestSchema.safeParse(body);
     if (!parsed.success) return validationError(parsed.error);
+
+    track("recipe_import_started", {
+      userId,
+      sourceType: parsed.data.type,
+      ...(parsed.data.type === "url"
+        ? { urlDomain: (() => { try { return new URL(parsed.data.url).hostname; } catch { return undefined; } })() }
+        : { textLength: parsed.data.text.length }),
+    });
 
     const { ingestion, draft } = await ingest(userId, parsed.data);
 

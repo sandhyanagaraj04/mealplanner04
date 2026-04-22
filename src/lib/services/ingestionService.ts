@@ -4,6 +4,7 @@ import { findIngredientByName } from "@/lib/services/ingredientService";
 import type { IngestInput, ConfirmIngestionInput, PatchDraftInput } from "@/lib/validations/ingest";
 import type { RecipeIngestionDraft } from "@/types";
 import { computeConfidence } from "@/lib/parsers/confidenceScorer";
+import { track, LOW_CONFIDENCE_THRESHOLD } from "@/lib/analytics/track";
 
 // ─── Ingest ───────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,24 @@ export async function ingest(userId: string, input: IngestInput) {
       status: "draft",
     },
   });
+
+  track("recipe_import_completed", {
+    userId,
+    ingestionId: ingestion.id,
+    confidence: result.draft.confidence,
+    ingredientCount: result.draft.ingredients.length,
+    stepCount: result.draft.steps.length,
+    warningCount: result.draft.warnings.length,
+    sourceType: input.type,
+  });
+
+  if (result.draft.confidence < LOW_CONFIDENCE_THRESHOLD) {
+    track("parse_low_confidence", {
+      ingestionId: ingestion.id,
+      confidence: result.draft.confidence,
+      warningCodes: result.draft.warnings.map((w) => w.code),
+    });
+  }
 
   return { ingestion, draft: result.draft };
 }
@@ -138,18 +157,27 @@ export async function confirmIngestion(
       data: { status: "confirmed", recipeId: recipe.id },
     });
 
-    return {
-      recipe: await tx.recipe.findUniqueOrThrow({
-        where: { id: recipe.id },
-        include: {
-          ingredients: {
-            include: { ingredient: true },
-            orderBy: { sortOrder: "asc" },
-          },
-          steps: { orderBy: { stepNumber: "asc" } },
+    const saved = await tx.recipe.findUniqueOrThrow({
+      where: { id: recipe.id },
+      include: {
+        ingredients: {
+          include: { ingredient: true },
+          orderBy: { sortOrder: "asc" },
         },
-      }),
-    };
+        steps: { orderBy: { stepNumber: "asc" } },
+      },
+    });
+
+    track("recipe_saved", {
+      userId,
+      recipeId: recipe.id,
+      ingestionId: id,
+      ingredientCount: saved.ingredients.length,
+      stepCount: saved.steps.length,
+      servings: saved.servings,
+    });
+
+    return { recipe: saved };
   });
 }
 

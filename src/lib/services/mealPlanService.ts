@@ -5,6 +5,7 @@ import type {
   AddItem,
   UpdateItem,
 } from "@/lib/validations/mealplan";
+import { track } from "@/lib/analytics/track";
 
 // ─── Week helpers ──────────────────────────────────────────────────────────────
 
@@ -150,6 +151,16 @@ export async function addMealPlanItem(planId: string, userId: string, data: AddI
         skipDuplicates: true,
       });
     }
+
+    track("meal_added", {
+      userId,
+      planId,
+      recipeId: data.recipeId,
+      dayOfWeek: data.dayOfWeek,
+      mealType: data.mealType,
+      servings: data.servings,
+      scaleFactor,
+    });
 
     return { item };
   } catch (err) {

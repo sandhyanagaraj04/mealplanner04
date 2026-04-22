@@ -10,6 +10,7 @@
 // produce a wrong guess. The UI should surface null normalizedNames for review.
 
 import type { PrepNoteSource } from "@/types";
+import { log } from "@/lib/analytics/track";
 
 // ─── Word lists ────────────────────────────────────────────────────────────────
 
@@ -187,6 +188,10 @@ export function normalizeIngredientName(raw: string): NormalizationResult {
       nameCandidate = before;
       preparationNote = after;
       prepNoteSource = "comma";
+      // Ambiguous when comma split fires but original also has a parenthetical
+      if (/\(/.test(after) || /\(/.test(trimmed.slice(commaIdx + 1))) {
+        log.normalizationConflict(trimmed, "comma_paren_ambiguity", { displayName: before, prepNoteSource: "comma", remainder: after });
+      }
     }
   }
 
@@ -213,6 +218,9 @@ export function normalizeIngredientName(raw: string): NormalizationResult {
   if (prepNoteSource === null) {
     const { prepNote, remainder } = stripPrepPrefix(nameCandidate);
     if (prepNote !== null) {
+      if (remainder.length < 4) {
+        log.normalizationConflict(trimmed, "prefix_over_stripped", { displayName: trimmed, prepNoteSource: "prefix", remainder });
+      }
       nameCandidate = remainder;
       preparationNote = prepNote;
       prepNoteSource = "prefix";
@@ -239,6 +247,10 @@ export function normalizeIngredientName(raw: string): NormalizationResult {
   } else if (singularized.length > 1) {
     // Low-confidence case: displayName is the best we have
     normalizedName = nameCandidate.toLowerCase().trim() || null;
+  }
+
+  if (!normalizedName) {
+    log.normalizationConflict(trimmed, "null_normalized_name", { displayName: trimmed });
   }
 
   return {
