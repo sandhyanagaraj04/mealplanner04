@@ -40,14 +40,12 @@ export default async function RecipeDetailPage({ params }: Params) {
           ← Recipes
         </Link>
         <div className="flex items-center gap-2">
-          {/* Add to Plan — stub, planner not yet built */}
-          <button
-            disabled
-            title="Planner coming soon"
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--muted)] cursor-not-allowed opacity-60"
+          <Link
+            href="/plans"
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
           >
             + Add to Plan
-          </button>
+          </Link>
           <Link
             href={`/recipes/${recipe.id}/edit`}
             className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-hover)] transition-colors"
