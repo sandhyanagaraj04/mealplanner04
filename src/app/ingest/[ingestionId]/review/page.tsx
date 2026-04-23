@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { TEST_USER_ID } from "@/lib/auth";
+import { auth } from "@/auth";
 import type { RecipeIngestionDraft } from "@/types";
 import ReviewEditor from "@/components/features/review/ReviewEditor";
 
@@ -10,10 +10,14 @@ export const REVIEW_THRESHOLD = 0.75;
 type Params = { params: Promise<{ ingestionId: string }> };
 
 export default async function ReviewPage({ params }: Params) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
+
   const { ingestionId } = await params;
 
   const ingestion = await db.recipeIngestion.findFirst({
-    where: { id: ingestionId, userId: TEST_USER_ID },
+    where: { id: ingestionId, userId },
   });
 
   if (!ingestion) notFound();

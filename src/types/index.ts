@@ -243,10 +243,12 @@ export interface CreateMealPlanInput {
 }
 
 export interface AddMealPlanItemInput {
-  recipeId: string;
+  type: "recipe" | "quick";
+  recipeId?: string | null;
+  name?: string | null;
   dayOfWeek: DayOfWeek;
   mealType: MealType;
-  servings: number;
+  servings?: number;
   customNote?: string;
 }
 

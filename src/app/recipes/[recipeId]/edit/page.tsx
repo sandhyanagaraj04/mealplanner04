@@ -1,16 +1,20 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { TEST_USER_ID } from "@/lib/auth";
+import { auth } from "@/auth";
 import RecipeEditForm from "@/components/features/recipes/RecipeEditForm";
 
 type Params = { params: Promise<{ recipeId: string }> };
 
 export default async function RecipeEditPage({ params }: Params) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
+
   const { recipeId } = await params;
 
   const recipe = await db.recipe.findFirst({
-    where: { id: recipeId, userId: TEST_USER_ID },
+    where: { id: recipeId, userId },
     select: {
       id: true,
       name: true,

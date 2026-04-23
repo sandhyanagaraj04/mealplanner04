@@ -1,14 +1,19 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { listRecipes } from "@/lib/services/recipeService";
-import { TEST_USER_ID } from "@/lib/auth";
+import { auth } from "@/auth";
 import RecipeCard from "@/components/features/recipes/RecipeCard";
 import RecipeSearch from "@/components/features/recipes/RecipeSearch";
 
 type PageProps = { searchParams: Promise<{ q?: string }> };
 
 export default async function RecipesPage({ searchParams }: PageProps) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
+
   const { q } = await searchParams;
-  const { items, total } = await listRecipes(TEST_USER_ID, { limit: 50, offset: 0, q });
+  const { items, total } = await listRecipes(userId, { limit: 50, offset: 0, q });
 
   return (
     <div className="flex flex-col gap-6 pt-2">

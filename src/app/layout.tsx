@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
+import Image from "next/image";
+import { auth, signOut } from "@/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,11 +15,13 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const session = await auth();
+
   return (
     <html lang="en">
       <body className="min-h-screen">
@@ -35,6 +39,46 @@ export default function RootLayout({
               >
                 + Import
               </Link>
+              {session ? (
+                <div className="flex items-center gap-2">
+                  {session.user.image ? (
+                    <Image
+                      src={session.user.image}
+                      alt={session.user.name ?? "User avatar"}
+                      width={28}
+                      height={28}
+                      className="rounded-full"
+                    />
+                  ) : (
+                    <div className="h-7 w-7 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-xs font-medium">
+                      {(session.user.name ?? session.user.email ?? "U")[0].toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-sm text-[var(--muted)] hidden sm:inline">
+                    {session.user.name ?? session.user.email}
+                  </span>
+                  <form
+                    action={async () => {
+                      "use server";
+                      await signOut({ redirectTo: "/login" });
+                    }}
+                  >
+                    <button
+                      type="submit"
+                      className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+                    >
+                      Sign out
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <Link
+                  href="/login"
+                  className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+                >
+                  Sign in
+                </Link>
+              )}
             </div>
           </div>
         </nav>

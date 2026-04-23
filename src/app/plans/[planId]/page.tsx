@@ -1,7 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { TEST_USER_ID } from "@/lib/auth";
+import { auth } from "@/auth";
 import WeekPlanner from "@/components/features/planner/WeekPlanner";
 import type { MealType } from "@/types";
 
@@ -18,15 +18,23 @@ function addUTCDays(isoDate: string, days: number): string {
 }
 
 export default async function PlannerPage({ params }: Params) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
+
   const { planId } = await params;
 
   const plan = await db.mealPlanWeek.findFirst({
-    where: { id: planId, userId: TEST_USER_ID },
+    where: { id: planId, userId },
     include: {
       items: {
         include: {
           recipe: {
             select: { id: true, name: true, servings: true },
+          },
+          shoppingItems: {
+            select: { id: true, itemName: true, quantity: true, unit: true, note: true },
+            orderBy: { sortOrder: "asc" },
           },
         },
         orderBy: [{ dayOfWeek: "asc" }, { mealType: "asc" }],
@@ -42,25 +50,33 @@ export default async function PlannerPage({ params }: Params) {
 
   const [prevPlan, nextPlan] = await Promise.all([
     db.mealPlanWeek.findFirst({
-      where: { userId: TEST_USER_ID, weekStart: new Date(prevWeekStart + "T00:00:00Z") },
+      where: { userId, weekStart: new Date(prevWeekStart + "T00:00:00Z") },
       select: { id: true },
     }),
     db.mealPlanWeek.findFirst({
-      where: { userId: TEST_USER_ID, weekStart: new Date(nextWeekStart + "T00:00:00Z") },
+      where: { userId, weekStart: new Date(nextWeekStart + "T00:00:00Z") },
       select: { id: true },
     }),
   ]);
 
   const initialItems = plan.items.map((item) => ({
     id: item.id,
+    type: item.type,
+    name: item.name ?? null,
     dayOfWeek: item.dayOfWeek,
     mealType: item.mealType as MealType,
     servings: item.servings,
-    recipe: {
-      id: item.recipe.id,
-      name: item.recipe.name,
-      servings: item.recipe.servings,
-    },
+    customNote: item.customNote ?? null,
+    recipe: item.recipe
+      ? { id: item.recipe.id, name: item.recipe.name, servings: item.recipe.servings }
+      : null,
+    shoppingItems: item.shoppingItems.map((si) => ({
+      id: si.id,
+      itemName: si.itemName,
+      quantity: si.quantity,
+      unit: si.unit,
+      note: si.note,
+    })),
   }));
 
   return (

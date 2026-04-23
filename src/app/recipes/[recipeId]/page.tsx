@@ -1,7 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { getRecipe } from "@/lib/services/recipeService";
-import { TEST_USER_ID } from "@/lib/auth";
+import { auth } from "@/auth";
 
 type Params = { params: Promise<{ recipeId: string }> };
 
@@ -20,8 +20,12 @@ function formatQty(qty: number | null, max: number | null): string {
 }
 
 export default async function RecipeDetailPage({ params }: Params) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
+
   const { recipeId } = await params;
-  const recipe = await getRecipe(recipeId, TEST_USER_ID);
+  const recipe = await getRecipe(recipeId, userId);
   if (!recipe) notFound();
 
   const timeParts = [

@@ -14,12 +14,34 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  email String  @unique
-  name  String?
+  email         String    @unique
+  name          String?
+  emailVerified DateTime?
+  image         String?
 
+  accounts   Account[]
   recipes    Recipe[]
   mealPlans  MealPlanWeek[]
   ingestions RecipeIngestion[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
 }
 
 // ─── Recipe ingestion staging ─────────────────────────────────────────────────
@@ -186,23 +208,45 @@ model MealPlanItem {
   mealPlanWeekId String
   mealPlanWeek   MealPlanWeek @relation(fields: [mealPlanWeekId], references: [id], onDelete: Cascade)
 
-  recipeId String
-  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Restrict)
+  type     String  @default("recipe") // "recipe" | "quick"
+  name     String? // display name for quick meals; optional override for recipe meals
+
+  recipeId String?
+  recipe   Recipe? @relation(fields: [recipeId], references: [id], onDelete: Restrict)
 
   dayOfWeek Int    // 0=Mon … 6=Sun
   mealType  String // "breakfast" | "lunch" | "dinner" | "snack"
 
   // Per-occurrence scaling — both stored; scaleFactor cached to avoid join during aggregation
   servings    Int
-  scaleFactor Float // = servings / recipe.servings
+  scaleFactor Float // = servings / recipe.servings (quick meals: always 1.0)
 
   customNote String? @db.Text // shown instead of recipe name if set
 
   ingredientStates MealPlanIngredientState[]
+  shoppingItems    MealPlanItemShoppingItem[]
 
   @@unique([mealPlanWeekId, dayOfWeek, mealType])
   @@index([mealPlanWeekId])
   @@index([recipeId])
+}
+
+// Manual shopping items attached to a quick meal.
+// Not used for recipe meals (those derive items from RecipeIngredient).
+model MealPlanItemShoppingItem {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  mealPlanItemId String
+  mealPlanItem   MealPlanItem @relation(fields: [mealPlanItemId], references: [id], onDelete: Cascade)
+
+  itemName  String
+  quantity  Float?
+  unit      String?
+  note      String?
+  sortOrder Int     @default(0)
+
+  @@index([mealPlanItemId])
 }
 
 // ─── Shopping list state ──────────────────────────────────────────────────────

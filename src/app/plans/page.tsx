@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { TEST_USER_ID } from "@/lib/auth";
+import { auth } from "@/auth";
 import NewPlanButton from "@/components/features/planner/NewPlanButton";
 
 function formatWeekRange(weekStart: Date): string {
@@ -13,8 +14,12 @@ function formatWeekRange(weekStart: Date): string {
 }
 
 export default async function PlansPage() {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  const userId = session.user.id;
+
   const plans = await db.mealPlanWeek.findMany({
-    where: { userId: TEST_USER_ID },
+    where: { userId },
     select: {
       id: true,
       name: true,

@@ -18,15 +18,40 @@ const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type PlanItemShoppingItem = {
+  id: string;
+  itemName: string;
+  quantity: number | null;
+  unit: string | null;
+  note: string | null;
+};
+
 type PlanItem = {
   id: string;
+  type?: string;
+  name?: string | null;
   dayOfWeek: number;
   mealType: MealType;
   servings: number;
-  recipe: { id: string; name: string; servings: number };
+  customNote?: string | null;
+  recipe: { id: string; name: string; servings: number } | null;
+  shoppingItems?: PlanItemShoppingItem[];
 };
 
+function displayName(item: PlanItem): string {
+  return item.name ?? item.recipe?.name ?? "Unknown";
+}
+
 type RecipeOption = { id: string; name: string; servings: number };
+
+// Draft row for the quick-meal shopping items form
+type ShoppingDraft = {
+  _key: string;
+  item_name: string;
+  quantity: string;
+  unit: string;
+  note: string;
+};
 
 export interface WeekPlannerProps {
   planId: string;
@@ -166,6 +191,172 @@ function RecipePicker({
   );
 }
 
+// ─── Quick Meal Form ──────────────────────────────────────────────────────────
+
+type QuickMealSubmitData = {
+  name: string;
+  customNote?: string;
+  shopping_items?: Array<{ item_name: string; quantity?: number; unit?: string; note?: string }>;
+};
+
+function QuickMealForm({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (data: QuickMealSubmitData) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [note, setNote] = useState("");
+  const [shoppingOpen, setShoppingOpen] = useState(false);
+  const [drafts, setDrafts] = useState<ShoppingDraft[]>([]);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { nameRef.current?.focus(); }, []);
+
+  function addDraft() {
+    setDrafts((prev) => [
+      ...prev,
+      { _key: String(Date.now() + Math.random()), item_name: "", quantity: "", unit: "", note: "" },
+    ]);
+  }
+
+  function removeDraft(key: string) {
+    setDrafts((prev) => prev.filter((d) => d._key !== key));
+  }
+
+  function updateDraft(key: string, field: keyof Omit<ShoppingDraft, "_key">, value: string) {
+    setDrafts((prev) => prev.map((d) => (d._key === key ? { ...d, [field]: value } : d)));
+  }
+
+  function handleSubmit() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const validItems = drafts
+      .filter((d) => d.item_name.trim())
+      .map((d) => ({
+        item_name: d.item_name.trim(),
+        ...(d.quantity && !isNaN(parseFloat(d.quantity)) ? { quantity: parseFloat(d.quantity) } : {}),
+        ...(d.unit.trim() ? { unit: d.unit.trim() } : {}),
+        ...(d.note.trim() ? { note: d.note.trim() } : {}),
+      }));
+    onSubmit({
+      name: trimmed,
+      ...(note.trim() ? { customNote: note.trim() } : {}),
+      ...(validItems.length > 0 ? { shopping_items: validItems } : {}),
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2 pt-1">
+      {/* Name row */}
+      <div className="flex gap-1">
+        <input
+          ref={nameRef}
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !shoppingOpen) handleSubmit();
+            if (e.key === "Escape") onCancel();
+          }}
+          placeholder="Meal name…"
+          className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!name.trim()}
+          className="rounded bg-[var(--accent)] px-2 py-1 text-xs text-white disabled:opacity-40 hover:bg-[var(--accent-hover)]"
+        >
+          Add
+        </button>
+      </div>
+
+      {/* Notes (optional) */}
+      <input
+        type="text"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Notes (optional)…"
+        className="rounded border border-[var(--border)] bg-white px-2 py-1 text-xs text-[var(--muted)] outline-none focus:border-[var(--accent)] focus:text-[var(--foreground)]"
+      />
+
+      {/* Shopping items — collapsed by default */}
+      <div className="rounded border border-[var(--border)] bg-[var(--background)] overflow-hidden">
+        <button
+          type="button"
+          onClick={() => {
+            if (!shoppingOpen) { setShoppingOpen(true); if (drafts.length === 0) addDraft(); }
+            else setShoppingOpen(false);
+          }}
+          className="w-full text-left px-2 py-1.5 text-xs text-[var(--muted)] hover:text-[var(--foreground)] flex items-center justify-between transition-colors"
+        >
+          <span>Need to buy anything for this meal?</span>
+          <span>{shoppingOpen ? "▴" : "▾"}</span>
+        </button>
+
+        {shoppingOpen && (
+          <div className="flex flex-col gap-1 px-2 pb-2 border-t border-[var(--border)]">
+            {drafts.map((d) => (
+              <div key={d._key} className="flex flex-col gap-0.5 pt-1">
+                {/* Item name + remove */}
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    value={d.item_name}
+                    onChange={(e) => updateDraft(d._key, "item_name", e.target.value)}
+                    placeholder="Item name…"
+                    className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-1 text-xs outline-none focus:border-[var(--accent)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeDraft(d._key)}
+                    className="text-[var(--muted)] hover:text-red-500 px-1 text-xs"
+                  >✕</button>
+                </div>
+                {/* Qty / unit / note */}
+                <div className="flex gap-1">
+                  <input
+                    type="number"
+                    value={d.quantity}
+                    onChange={(e) => updateDraft(d._key, "quantity", e.target.value)}
+                    placeholder="Qty"
+                    min="0"
+                    className="w-14 rounded border border-[var(--border)] bg-white px-2 py-0.5 text-xs outline-none focus:border-[var(--accent)]"
+                  />
+                  <input
+                    type="text"
+                    value={d.unit}
+                    onChange={(e) => updateDraft(d._key, "unit", e.target.value)}
+                    placeholder="Unit"
+                    className="w-16 rounded border border-[var(--border)] bg-white px-2 py-0.5 text-xs outline-none focus:border-[var(--accent)]"
+                  />
+                  <input
+                    type="text"
+                    value={d.note}
+                    onChange={(e) => updateDraft(d._key, "note", e.target.value)}
+                    placeholder="Note"
+                    className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-0.5 text-xs outline-none focus:border-[var(--accent)]"
+                  />
+                </div>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              onClick={addDraft}
+              className="mt-1 text-xs text-[var(--accent)] hover:underline text-left"
+            >
+              + Add item
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function WeekPlanner({
@@ -182,11 +373,31 @@ export default function WeekPlanner({
   const [copySource, setCopySource] = useState<PlanItem | null>(null);
 
   // Picker state
-  const [pickerSlot, setPickerSlot] = useState<{ day: number; meal: MealType } | null>(null);
+  const [pickerSlot, setPickerSlot] = useState<{ day: number; meal: MealType; mode: "recipe" | "quick" } | null>(null);
   const [pickerQuery, setPickerQuery] = useState("");
   const [recipes, setRecipes] = useState<RecipeOption[]>([]);
   const [recipesLoading, setRecipesLoading] = useState(false);
   const recipesLoaded = useRef(false);
+
+  // Attach-recipe state (quick → recipe conversion)
+  const [attachItemId, setAttachItemId] = useState<string | null>(null);
+  const [attachQuery, setAttachQuery] = useState("");
+  const [attachStep, setAttachStep] = useState<"picking" | "confirming">("picking");
+  const [pendingAttachRecipe, setPendingAttachRecipe] = useState<RecipeOption | null>(null);
+
+  function openAttach(itemId: string) {
+    setAttachItemId(itemId);
+    setAttachQuery("");
+    setAttachStep("picking");
+    setPendingAttachRecipe(null);
+    loadRecipes();
+  }
+
+  function closeAttach() {
+    setAttachItemId(null);
+    setPendingAttachRecipe(null);
+    setAttachStep("picking");
+  }
 
   // Per-slot error flashes
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -253,7 +464,7 @@ export default function WeekPlanner({
   // ── Actions ────────────────────────────────────────────────────────────
 
   async function openPicker(day: number, meal: MealType) {
-    setPickerSlot({ day, meal });
+    setPickerSlot({ day, meal, mode: "recipe" });
     setPickerQuery("");
     loadRecipes();
   }
@@ -262,6 +473,7 @@ export default function WeekPlanner({
     setPickerSlot(null);
     const optimistic: PlanItem = {
       id: `optimistic-${day}-${meal}`,
+      type: "recipe",
       dayOfWeek: day,
       mealType: meal,
       servings: recipe.servings,
@@ -273,11 +485,49 @@ export default function WeekPlanner({
       const res = await fetch(`/api/meal-plans/${planId}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipeId: recipe.id, dayOfWeek: day, mealType: meal, servings: recipe.servings }),
+        body: JSON.stringify({ type: "recipe", recipeId: recipe.id, dayOfWeek: day, mealType: meal, servings: recipe.servings }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error ?? "Failed");
       // Replace optimistic with real
+      setItems((prev) =>
+        prev.map((i) => (i.id === optimistic.id ? { ...data.data, mealType: data.data.mealType as MealType } : i))
+      );
+    } catch (err) {
+      setItems((prev) => prev.filter((i) => i.id !== optimistic.id));
+      flashError(day, meal, err instanceof Error ? err.message : "Failed to add");
+    }
+  }
+
+  async function assignQuickMeal(day: number, meal: MealType, formData: QuickMealSubmitData) {
+    setPickerSlot(null);
+    const optimistic: PlanItem = {
+      id: `optimistic-quick-${day}-${meal}`,
+      type: "quick",
+      name: formData.name,
+      customNote: formData.customNote ?? null,
+      dayOfWeek: day,
+      mealType: meal,
+      servings: 1,
+      recipe: null,
+      shoppingItems: (formData.shopping_items ?? []).map((si, i) => ({
+        id: `optimistic-si-${i}`,
+        itemName: si.item_name,
+        quantity: si.quantity ?? null,
+        unit: si.unit ?? null,
+        note: si.note ?? null,
+      })),
+    };
+    setItems((prev) => [...prev, optimistic]);
+
+    try {
+      const res = await fetch(`/api/meal-plans/${planId}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "quick", dayOfWeek: day, mealType: meal, ...formData }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Failed");
       setItems((prev) =>
         prev.map((i) => (i.id === optimistic.id ? { ...data.data, mealType: data.data.mealType as MealType } : i))
       );
@@ -327,7 +577,48 @@ export default function WeekPlanner({
     if (!copySource) return;
     const src = copySource;
     setCopySource(null);
-    await assignRecipe(day, meal, src.recipe);
+    if (src.type === "quick" || !src.recipe) {
+      await assignQuickMeal(day, meal, { name: src.name ?? "Quick meal" });
+    } else {
+      await assignRecipe(day, meal, src.recipe);
+    }
+  }
+
+  async function attachRecipe(item: PlanItem, recipe: RecipeOption, clearShoppingItems: boolean) {
+    closeAttach();
+    const prev = { ...item };
+    setItems((all) =>
+      all.map((i) =>
+        i.id === item.id
+          ? { ...i, type: "recipe", recipe, shoppingItems: clearShoppingItems ? [] : i.shoppingItems }
+          : i
+      )
+    );
+    try {
+      const res = await fetch(`/api/meal-plans/${planId}/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "recipe", recipeId: recipe.id, clearShoppingItems }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Failed");
+      setItems((all) =>
+        all.map((i) => (i.id === item.id ? { ...data.data, mealType: data.data.mealType as MealType } : i))
+      );
+    } catch (err) {
+      setItems((all) => all.map((i) => (i.id === item.id ? prev : i)));
+      flashError(item.dayOfWeek, item.mealType, err instanceof Error ? err.message : "Failed to attach");
+    }
+  }
+
+  function handleRecipeSelected(item: PlanItem, recipe: RecipeOption) {
+    const hasShoppingItems = (item.shoppingItems?.length ?? 0) > 0;
+    if (!hasShoppingItems) {
+      attachRecipe(item, recipe, false);
+    } else {
+      setPendingAttachRecipe(recipe);
+      setAttachStep("confirming");
+    }
   }
 
   // Navigate to adjacent week; create plan if needed
@@ -383,7 +674,7 @@ export default function WeekPlanner({
       {copySource && (
         <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           <span>
-            Copying <strong>{copySource.recipe.name}</strong> — click an empty slot to paste
+            Copying <strong>{displayName(copySource)}</strong> — click an empty slot to paste
           </span>
           <button
             type="button"
@@ -439,77 +730,163 @@ export default function WeekPlanner({
                     {item ? (
                       /* Filled slot */
                       <div>
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {/* Recipe name — click to expand scaled ingredients */}
-                          <button
-                            type="button"
-                            onClick={() => toggleExpanded(item.id)}
-                            className="flex-1 min-w-0 text-left text-sm font-medium truncate hover:text-[var(--accent)] transition-colors"
-                            title={expandedSlots.has(item.id) ? "Hide ingredients" : "Show scaled ingredients"}
-                          >
-                            {item.recipe.name}
-                            <span className="ml-1 text-[var(--muted)] text-xs">
-                              {expandedSlots.has(item.id) ? "▴" : "▾"}
-                            </span>
-                          </button>
-
-                          {/* Servings control */}
-                          <div className="flex items-center gap-0.5 flex-shrink-0">
-                            <Btn
-                              onClick={() => updateServings(item, -1)}
-                              disabled={item.servings <= 1}
-                              title="Fewer servings"
-                              variant="ghost"
-                            >−</Btn>
-                            <span className="text-sm font-semibold w-5 text-center tabular-nums">
-                              {item.servings}
-                            </span>
-                            <Btn
-                              onClick={() => updateServings(item, 1)}
-                              title="More servings"
-                              variant="ghost"
-                            >+</Btn>
-                            <span className="text-xs text-[var(--muted)]">🧑</span>
+                        {/* Attach-recipe picker / confirm — replaces normal controls while active */}
+                        {attachItemId === item.id ? (
+                          <div className="flex flex-col gap-1">
+                            {attachStep === "picking" ? (
+                              <>
+                                <p className="text-xs text-[var(--muted)] font-medium">Attach a recipe to this meal:</p>
+                                <RecipePicker
+                                  recipes={recipes}
+                                  loading={recipesLoading}
+                                  query={attachQuery}
+                                  onQueryChange={setAttachQuery}
+                                  onSelect={(r) => handleRecipeSelected(item, r)}
+                                  onClose={closeAttach}
+                                />
+                              </>
+                            ) : (
+                              /* Confirm step — shopping items conflict */
+                              <div className="flex flex-col gap-2 rounded border border-amber-300 bg-amber-50 p-2">
+                                <p className="text-xs text-amber-900 font-medium">
+                                  This meal has {item.shoppingItems!.length} manually added shopping item{item.shoppingItems!.length !== 1 ? "s" : ""}. What would you like to do?
+                                </p>
+                                <div className="flex flex-col gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => attachRecipe(item, pendingAttachRecipe!, true)}
+                                    className="text-left text-xs rounded border border-[var(--border)] bg-white px-2 py-1.5 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                                  >
+                                    Replace with recipe ingredients
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => attachRecipe(item, pendingAttachRecipe!, false)}
+                                    className="text-left text-xs rounded border border-[var(--border)] bg-white px-2 py-1.5 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                                  >
+                                    Keep both temporarily
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={closeAttach}
+                                    className="text-left text-xs text-[var(--muted)] hover:text-[var(--foreground)] px-2 py-1 transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {/* Meal name */}
+                              <button
+                                type="button"
+                                onClick={() => item.recipe && toggleExpanded(item.id)}
+                                className="flex-1 min-w-0 text-left text-sm font-medium truncate hover:text-[var(--accent)] transition-colors"
+                                title={item.recipe ? (expandedSlots.has(item.id) ? "Hide ingredients" : "Show scaled ingredients") : undefined}
+                              >
+                                {displayName(item)}
+                                {item.recipe && (
+                                  <span className="ml-1 text-[var(--muted)] text-xs">
+                                    {expandedSlots.has(item.id) ? "▴" : "▾"}
+                                  </span>
+                                )}
+                              </button>
 
-                          {/* Copy */}
-                          <Btn
-                            onClick={() =>
-                              setCopySource(copySource?.id === item.id ? null : item)
-                            }
-                            title="Copy to another day"
-                            variant={copySource?.id === item.id ? "copy" : "ghost"}
-                          >
-                            {copySource?.id === item.id ? "📋✓" : "📋"}
-                          </Btn>
+                              {/* Servings control — recipe meals only */}
+                              {item.type !== "quick" && (
+                                <div className="flex items-center gap-0.5 flex-shrink-0">
+                                  <Btn onClick={() => updateServings(item, -1)} disabled={item.servings <= 1} title="Fewer servings" variant="ghost">−</Btn>
+                                  <span className="text-sm font-semibold w-5 text-center tabular-nums">{item.servings}</span>
+                                  <Btn onClick={() => updateServings(item, 1)} title="More servings" variant="ghost">+</Btn>
+                                  <span className="text-xs text-[var(--muted)]">🧑</span>
+                                </div>
+                              )}
 
-                          {/* Remove */}
-                          <Btn
-                            onClick={() => removeItem(item)}
-                            title="Remove"
-                            variant="danger"
-                          >✕</Btn>
-                        </div>
+                              {/* Copy */}
+                              <Btn onClick={() => setCopySource(copySource?.id === item.id ? null : item)} title="Copy to another day" variant={copySource?.id === item.id ? "copy" : "ghost"}>
+                                {copySource?.id === item.id ? "📋✓" : "📋"}
+                              </Btn>
 
-                        {/* Scaled ingredient list — lazy-loaded on expand */}
-                        {expandedSlots.has(item.id) && (
-                          <ScaledIngredients
-                            recipeId={item.recipe.id}
-                            recipeDefaultServings={item.recipe.servings}
-                            planServings={item.servings}
-                          />
+                              {/* Remove */}
+                              <Btn onClick={() => removeItem(item)} title="Remove" variant="danger">✕</Btn>
+                            </div>
+
+                            {/* Quick meal secondary row */}
+                            {item.type === "quick" && (
+                              <div className="mt-0.5 flex items-center gap-2">
+                                {(item.shoppingItems?.length ?? 0) > 0 && (
+                                  <span className="text-xs text-[var(--muted)]">
+                                    {item.shoppingItems!.length} shopping item{item.shoppingItems!.length !== 1 ? "s" : ""}
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => openAttach(item.id)}
+                                  className="text-xs text-[var(--accent)] hover:underline"
+                                >
+                                  Attach recipe
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Scaled ingredients — recipe meals only */}
+                            {expandedSlots.has(item.id) && item.recipe && (
+                              <ScaledIngredients
+                                recipeId={item.recipe.id}
+                                recipeDefaultServings={item.recipe.servings}
+                                planServings={item.servings}
+                              />
+                            )}
+                          </>
                         )}
                       </div>
                     ) : isPickerOpen ? (
-                      /* Recipe picker */
-                      <RecipePicker
-                        recipes={recipes}
-                        loading={recipesLoading}
-                        query={pickerQuery}
-                        onQueryChange={setPickerQuery}
-                        onSelect={(r) => assignRecipe(dayIdx, meal, r)}
-                        onClose={() => setPickerSlot(null)}
-                      />
+                      /* Picker with recipe/quick tabs */
+                      <div className="flex flex-col gap-1 pt-1">
+                        {/* Mode tabs */}
+                        <div className="flex gap-1 mb-1">
+                          <button
+                            type="button"
+                            onClick={() => setPickerSlot((s) => s ? { ...s, mode: "recipe" } : s)}
+                            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${pickerSlot?.mode === "recipe" ? "bg-[var(--accent)] text-white" : "bg-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                          >
+                            Recipe
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPickerSlot((s) => s ? { ...s, mode: "quick" } : s)}
+                            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${pickerSlot?.mode === "quick" ? "bg-[var(--accent)] text-white" : "bg-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                          >
+                            Quick meal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPickerSlot(null)}
+                            className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] px-1"
+                            title="Cancel"
+                          >✕</button>
+                        </div>
+
+                        {pickerSlot?.mode === "quick" ? (
+                          <QuickMealForm
+                            onSubmit={(fd) => assignQuickMeal(dayIdx, meal, fd)}
+                            onCancel={() => setPickerSlot(null)}
+                          />
+                        ) : (
+                          /* Recipe picker */
+                          <RecipePicker
+                            recipes={recipes}
+                            loading={recipesLoading}
+                            query={pickerQuery}
+                            onQueryChange={setPickerQuery}
+                            onSelect={(r) => assignRecipe(dayIdx, meal, r)}
+                            onClose={() => setPickerSlot(null)}
+                          />
+                        )}
+                      </div>
                     ) : isPasteTarget ? (
                       /* Paste target */
                       <button
@@ -517,7 +894,7 @@ export default function WeekPlanner({
                         onClick={() => pasteToSlot(dayIdx, meal)}
                         className="w-full text-left text-sm text-amber-700 font-medium rounded border-2 border-dashed border-amber-400 bg-amber-50 px-2 py-1 hover:bg-amber-100 transition-colors"
                       >
-                        Paste: {copySource!.recipe.name}
+                        Paste: {displayName(copySource!)}
                       </button>
                     ) : (
                       /* Empty slot */
