@@ -32,6 +32,10 @@ export default async function PlannerPage({ params }: Params) {
           recipe: {
             select: { id: true, name: true, servings: true },
           },
+          shoppingItems: {
+            select: { id: true, itemName: true, quantity: true, unit: true, note: true },
+            orderBy: { sortOrder: "asc" },
+          },
         },
         orderBy: [{ dayOfWeek: "asc" }, { mealType: "asc" }],
       },
@@ -62,13 +66,17 @@ export default async function PlannerPage({ params }: Params) {
     dayOfWeek: item.dayOfWeek,
     mealType: item.mealType as MealType,
     servings: item.servings,
+    customNote: item.customNote ?? null,
     recipe: item.recipe
-      ? {
-          id: item.recipe.id,
-          name: item.recipe.name,
-          servings: item.recipe.servings,
-        }
+      ? { id: item.recipe.id, name: item.recipe.name, servings: item.recipe.servings }
       : null,
+    shoppingItems: item.shoppingItems.map((si) => ({
+      id: si.id,
+      itemName: si.itemName,
+      quantity: si.quantity,
+      unit: si.unit,
+      note: si.note,
+    })),
   }));
 
   return (
