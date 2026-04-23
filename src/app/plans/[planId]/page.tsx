@@ -57,14 +57,18 @@ export default async function PlannerPage({ params }: Params) {
 
   const initialItems = plan.items.map((item) => ({
     id: item.id,
+    type: item.type,
+    name: item.name ?? null,
     dayOfWeek: item.dayOfWeek,
     mealType: item.mealType as MealType,
     servings: item.servings,
-    recipe: {
-      id: item.recipe.id,
-      name: item.recipe.name,
-      servings: item.recipe.servings,
-    },
+    recipe: item.recipe
+      ? {
+          id: item.recipe.id,
+          name: item.recipe.name,
+          servings: item.recipe.servings,
+        }
+      : null,
   }));
 
   return (

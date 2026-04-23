@@ -58,7 +58,7 @@ interface Events {
   meal_added: {
     userId: string;
     planId: string;
-    recipeId: string;
+    recipeId?: string;
     dayOfWeek: number;
     mealType: string;
     servings: number;

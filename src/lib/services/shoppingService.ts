@@ -68,7 +68,11 @@ export async function initializeShoppingStates(planId: string, userId: string): 
   });
   if (!plan || plan.items.length === 0) return;
 
-  const recipeIds = [...new Set(plan.items.map((i) => i.recipeId))];
+  // Quick meals have no recipeId — skip them
+  const recipeItems = plan.items.filter((i) => i.recipeId !== null);
+  if (recipeItems.length === 0) return;
+
+  const recipeIds = [...new Set(recipeItems.map((i) => i.recipeId as string))];
   const riRows = await db.recipeIngredient.findMany({
     where: { recipeId: { in: recipeIds } },
     select: { id: true, recipeId: true },
@@ -83,8 +87,8 @@ export async function initializeShoppingStates(planId: string, userId: string): 
   }
 
   const pairs: { mealPlanItemId: string; recipeIngredientId: string }[] = [];
-  for (const item of plan.items) {
-    for (const riId of riByRecipe.get(item.recipeId) ?? []) {
+  for (const item of recipeItems) {
+    for (const riId of riByRecipe.get(item.recipeId as string) ?? []) {
       pairs.push({ mealPlanItemId: item.id, recipeIngredientId: riId });
     }
   }
@@ -167,7 +171,10 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
 
   if (!plan) return null;
 
-  const recipeIds = [...new Set(plan.items.map((i) => i.recipeId))];
+  // Quick meals (no recipeId) have no ingredients to aggregate
+  const recipeItems = plan.items.filter((i) => i.recipeId !== null);
+
+  const recipeIds = [...new Set(recipeItems.map((i) => i.recipeId as string))];
   const ingredients = await db.recipeIngredient.findMany({
     where: { recipeId: { in: recipeIds } },
     include: { ingredient: true },
@@ -177,7 +184,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
 
   type StateRow = (typeof plan.items)[0]["ingredientStates"][0];
   const stateIndex = new Map<string, Map<string, StateRow>>();
-  for (const item of plan.items) {
+  for (const item of recipeItems) {
     const byRi = new Map<string, StateRow>();
     for (const s of item.ingredientStates) byRi.set(s.recipeIngredientId, s);
     stateIndex.set(item.id, byRi);
@@ -188,7 +195,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
   // Track first merge failure per group key
   const mergeFailures = new Map<string, MergeFailReason>();
 
-  for (const item of plan.items) {
+  for (const item of recipeItems) {
     const recipeIngredients = ingredients.filter((ri) => ri.recipeId === item.recipeId);
     const stateByRi = stateIndex.get(item.id) ?? new Map();
 
@@ -205,7 +212,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
         recipeIngredientId: ri.id,
         dayOfWeek: item.dayOfWeek as DayOfWeek,
         mealType: item.mealType as MealType,
-        recipeName: item.recipe.name,
+        recipeName: item.recipe?.name ?? "",
         scaledQuantity: scaledQty,
         unit: ri.unit,
         state: (stateRow?.state ?? "PENDING") as ShoppingState,

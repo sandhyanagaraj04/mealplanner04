@@ -13,19 +13,32 @@ export const MealPlanUpdateSchema = z.object({
   notes: z.string().max(2000).nullable().optional(),
 });
 
-export const AddItemSchema = z.object({
-  recipeId: z.string().cuid(),
+const AddQuickItemSchema = z.object({
+  type: z.literal("quick"),
+  name: z.string().min(1).max(200),
   dayOfWeek: z.number().int().min(0).max(6),
   mealType: z.enum(MEAL_TYPES),
-  servings: z.number().int().min(1).max(500),
-  customNote: z.string().max(500).optional(),
+  customNote: z.string().optional(),
 });
+
+const AddRecipeItemSchema = z.object({
+  type: z.literal("recipe"),
+  recipeId: z.string(),
+  dayOfWeek: z.number().int().min(0).max(6),
+  mealType: z.enum(MEAL_TYPES),
+  servings: z.number().int().min(1),
+  customNote: z.string().optional(),
+});
+
+export const AddItemSchema = z.discriminatedUnion("type", [AddQuickItemSchema, AddRecipeItemSchema]);
 
 export const UpdateItemSchema = z.object({
   servings: z.number().int().min(1).max(500).optional(),
   dayOfWeek: z.number().int().min(0).max(6).optional(),
   mealType: z.enum(MEAL_TYPES).optional(),
   customNote: z.string().max(500).nullable().optional(),
+  recipeId: z.string().optional(),
+  name: z.string().max(200).optional(),
 });
 
 export const UpdateIngredientStateSchema = z.object({

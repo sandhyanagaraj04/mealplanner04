@@ -20,11 +20,17 @@ const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type PlanItem = {
   id: string;
+  type?: string;
+  name?: string | null;
   dayOfWeek: number;
   mealType: MealType;
   servings: number;
-  recipe: { id: string; name: string; servings: number };
+  recipe: { id: string; name: string; servings: number } | null;
 };
+
+function displayName(item: PlanItem): string {
+  return item.name ?? item.recipe?.name ?? "Unknown";
+}
 
 type RecipeOption = { id: string; name: string; servings: number };
 
@@ -182,11 +188,12 @@ export default function WeekPlanner({
   const [copySource, setCopySource] = useState<PlanItem | null>(null);
 
   // Picker state
-  const [pickerSlot, setPickerSlot] = useState<{ day: number; meal: MealType } | null>(null);
+  const [pickerSlot, setPickerSlot] = useState<{ day: number; meal: MealType; mode: "recipe" | "quick" } | null>(null);
   const [pickerQuery, setPickerQuery] = useState("");
   const [recipes, setRecipes] = useState<RecipeOption[]>([]);
   const [recipesLoading, setRecipesLoading] = useState(false);
   const recipesLoaded = useRef(false);
+  const [quickMealName, setQuickMealName] = useState("");
 
   // Per-slot error flashes
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -253,8 +260,9 @@ export default function WeekPlanner({
   // ── Actions ────────────────────────────────────────────────────────────
 
   async function openPicker(day: number, meal: MealType) {
-    setPickerSlot({ day, meal });
+    setPickerSlot({ day, meal, mode: "recipe" });
     setPickerQuery("");
+    setQuickMealName("");
     loadRecipes();
   }
 
@@ -262,6 +270,7 @@ export default function WeekPlanner({
     setPickerSlot(null);
     const optimistic: PlanItem = {
       id: `optimistic-${day}-${meal}`,
+      type: "recipe",
       dayOfWeek: day,
       mealType: meal,
       servings: recipe.servings,
@@ -273,11 +282,43 @@ export default function WeekPlanner({
       const res = await fetch(`/api/meal-plans/${planId}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipeId: recipe.id, dayOfWeek: day, mealType: meal, servings: recipe.servings }),
+        body: JSON.stringify({ type: "recipe", recipeId: recipe.id, dayOfWeek: day, mealType: meal, servings: recipe.servings }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error ?? "Failed");
       // Replace optimistic with real
+      setItems((prev) =>
+        prev.map((i) => (i.id === optimistic.id ? { ...data.data, mealType: data.data.mealType as MealType } : i))
+      );
+    } catch (err) {
+      setItems((prev) => prev.filter((i) => i.id !== optimistic.id));
+      flashError(day, meal, err instanceof Error ? err.message : "Failed to add");
+    }
+  }
+
+  async function assignQuickMeal(day: number, meal: MealType, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setPickerSlot(null);
+    const optimistic: PlanItem = {
+      id: `optimistic-quick-${day}-${meal}`,
+      type: "quick",
+      name: trimmed,
+      dayOfWeek: day,
+      mealType: meal,
+      servings: 1,
+      recipe: null,
+    };
+    setItems((prev) => [...prev, optimistic]);
+
+    try {
+      const res = await fetch(`/api/meal-plans/${planId}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "quick", name: trimmed, dayOfWeek: day, mealType: meal }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Failed");
       setItems((prev) =>
         prev.map((i) => (i.id === optimistic.id ? { ...data.data, mealType: data.data.mealType as MealType } : i))
       );
@@ -327,7 +368,11 @@ export default function WeekPlanner({
     if (!copySource) return;
     const src = copySource;
     setCopySource(null);
-    await assignRecipe(day, meal, src.recipe);
+    if (src.type === "quick" || !src.recipe) {
+      await assignQuickMeal(day, meal, src.name ?? "Quick meal");
+    } else {
+      await assignRecipe(day, meal, src.recipe);
+    }
   }
 
   // Navigate to adjacent week; create plan if needed
@@ -383,7 +428,7 @@ export default function WeekPlanner({
       {copySource && (
         <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           <span>
-            Copying <strong>{copySource.recipe.name}</strong> — click an empty slot to paste
+            Copying <strong>{displayName(copySource)}</strong> — click an empty slot to paste
           </span>
           <button
             type="button"
@@ -440,17 +485,19 @@ export default function WeekPlanner({
                       /* Filled slot */
                       <div>
                         <div className="flex items-center gap-1 flex-wrap">
-                          {/* Recipe name — click to expand scaled ingredients */}
+                          {/* Meal name — click to expand scaled ingredients (recipe meals only) */}
                           <button
                             type="button"
-                            onClick={() => toggleExpanded(item.id)}
+                            onClick={() => item.recipe && toggleExpanded(item.id)}
                             className="flex-1 min-w-0 text-left text-sm font-medium truncate hover:text-[var(--accent)] transition-colors"
-                            title={expandedSlots.has(item.id) ? "Hide ingredients" : "Show scaled ingredients"}
+                            title={item.recipe ? (expandedSlots.has(item.id) ? "Hide ingredients" : "Show scaled ingredients") : undefined}
                           >
-                            {item.recipe.name}
-                            <span className="ml-1 text-[var(--muted)] text-xs">
-                              {expandedSlots.has(item.id) ? "▴" : "▾"}
-                            </span>
+                            {displayName(item)}
+                            {item.recipe && (
+                              <span className="ml-1 text-[var(--muted)] text-xs">
+                                {expandedSlots.has(item.id) ? "▴" : "▾"}
+                              </span>
+                            )}
                           </button>
 
                           {/* Servings control */}
@@ -491,8 +538,8 @@ export default function WeekPlanner({
                           >✕</Btn>
                         </div>
 
-                        {/* Scaled ingredient list — lazy-loaded on expand */}
-                        {expandedSlots.has(item.id) && (
+                        {/* Scaled ingredient list — lazy-loaded on expand (recipe meals only) */}
+                        {expandedSlots.has(item.id) && item.recipe && (
                           <ScaledIngredients
                             recipeId={item.recipe.id}
                             recipeDefaultServings={item.recipe.servings}
@@ -501,15 +548,68 @@ export default function WeekPlanner({
                         )}
                       </div>
                     ) : isPickerOpen ? (
-                      /* Recipe picker */
-                      <RecipePicker
-                        recipes={recipes}
-                        loading={recipesLoading}
-                        query={pickerQuery}
-                        onQueryChange={setPickerQuery}
-                        onSelect={(r) => assignRecipe(dayIdx, meal, r)}
-                        onClose={() => setPickerSlot(null)}
-                      />
+                      /* Picker with recipe/quick tabs */
+                      <div className="flex flex-col gap-1 pt-1">
+                        {/* Mode tabs */}
+                        <div className="flex gap-1 mb-1">
+                          <button
+                            type="button"
+                            onClick={() => setPickerSlot((s) => s ? { ...s, mode: "recipe" } : s)}
+                            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${pickerSlot?.mode === "recipe" ? "bg-[var(--accent)] text-white" : "bg-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                          >
+                            Recipe
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPickerSlot((s) => s ? { ...s, mode: "quick" } : s)}
+                            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${pickerSlot?.mode === "quick" ? "bg-[var(--accent)] text-white" : "bg-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                          >
+                            Quick meal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPickerSlot(null)}
+                            className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] px-1"
+                            title="Cancel"
+                          >✕</button>
+                        </div>
+
+                        {pickerSlot?.mode === "quick" ? (
+                          /* Quick meal input */
+                          <div className="flex gap-1">
+                            <input
+                              type="text"
+                              value={quickMealName}
+                              onChange={(e) => setQuickMealName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") assignQuickMeal(dayIdx, meal, quickMealName);
+                                if (e.key === "Escape") setPickerSlot(null);
+                              }}
+                              placeholder="Meal name…"
+                              autoFocus
+                              className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => assignQuickMeal(dayIdx, meal, quickMealName)}
+                              disabled={!quickMealName.trim()}
+                              className="rounded bg-[var(--accent)] px-2 py-1 text-xs text-white disabled:opacity-40 hover:bg-[var(--accent-hover)]"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        ) : (
+                          /* Recipe picker */
+                          <RecipePicker
+                            recipes={recipes}
+                            loading={recipesLoading}
+                            query={pickerQuery}
+                            onQueryChange={setPickerQuery}
+                            onSelect={(r) => assignRecipe(dayIdx, meal, r)}
+                            onClose={() => setPickerSlot(null)}
+                          />
+                        )}
+                      </div>
                     ) : isPasteTarget ? (
                       /* Paste target */
                       <button
@@ -517,7 +617,7 @@ export default function WeekPlanner({
                         onClick={() => pasteToSlot(dayIdx, meal)}
                         className="w-full text-left text-sm text-amber-700 font-medium rounded border-2 border-dashed border-amber-400 bg-amber-50 px-2 py-1 hover:bg-amber-100 transition-colors"
                       >
-                        Paste: {copySource!.recipe.name}
+                        Paste: {displayName(copySource!)}
                       </button>
                     ) : (
                       /* Empty slot */

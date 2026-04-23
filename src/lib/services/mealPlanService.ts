@@ -109,6 +109,46 @@ export async function addMealPlanItem(planId: string, userId: string, data: AddI
   const plan = await db.mealPlanWeek.findFirst({ where: { id: planId, userId } });
   if (!plan) return { error: "not_found" as const };
 
+  if (data.type === "quick") {
+    // Quick meals: no recipe lookup, servings=1, scaleFactor=1.0
+    try {
+      const item = await db.mealPlanItem.create({
+        data: {
+          mealPlanWeekId: planId,
+          type: "quick",
+          name: data.name,
+          recipeId: undefined,
+          dayOfWeek: data.dayOfWeek,
+          mealType: data.mealType,
+          servings: 1,
+          scaleFactor: 1.0,
+          customNote: data.customNote,
+        },
+        include: {
+          recipe: {
+            select: { id: true, name: true, servings: true },
+          },
+        },
+      });
+
+      track("meal_added", {
+        userId,
+        planId,
+        dayOfWeek: data.dayOfWeek,
+        mealType: data.mealType,
+        servings: 1,
+        scaleFactor: 1,
+      });
+
+      return { item };
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === "P2002") return { error: "conflict" as const };
+      throw err;
+    }
+  }
+
+  // type === "recipe"
   // Verify recipe exists and belongs to this user
   const recipe = await db.recipe.findFirst({
     where: { id: data.recipeId, userId },
@@ -122,6 +162,7 @@ export async function addMealPlanItem(planId: string, userId: string, data: AddI
     const item = await db.mealPlanItem.create({
       data: {
         mealPlanWeekId: planId,
+        type: "recipe",
         recipeId: data.recipeId,
         dayOfWeek: data.dayOfWeek,
         mealType: data.mealType,
@@ -185,8 +226,11 @@ export async function updateMealPlanItem(
   });
   if (!item) return { error: "item_not_found" as const };
 
-  const newServings = data.servings ?? item.servings;
-  const scaleFactor = newServings / item.recipe.servings;
+  // For quick meals (no recipe), keep scaleFactor at 1.0
+  const newServings = item.recipe ? (data.servings ?? item.servings) : 1;
+  const scaleFactor = item.recipe
+    ? newServings / item.recipe.servings
+    : 1.0;
 
   try {
     const updated = await db.mealPlanItem.update({
@@ -195,6 +239,7 @@ export async function updateMealPlanItem(
         ...(data.dayOfWeek !== undefined && { dayOfWeek: data.dayOfWeek }),
         ...(data.mealType !== undefined && { mealType: data.mealType }),
         ...(data.customNote !== undefined && { customNote: data.customNote }),
+        ...(data.name !== undefined && { name: data.name }),
         servings: newServings,
         scaleFactor,
       },

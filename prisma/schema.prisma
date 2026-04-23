@@ -208,15 +208,18 @@ model MealPlanItem {
   mealPlanWeekId String
   mealPlanWeek   MealPlanWeek @relation(fields: [mealPlanWeekId], references: [id], onDelete: Cascade)
 
-  recipeId String
-  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Restrict)
+  type     String  @default("recipe") // "recipe" | "quick"
+  name     String? // display name for quick meals; optional override for recipe meals
+
+  recipeId String?
+  recipe   Recipe? @relation(fields: [recipeId], references: [id], onDelete: Restrict)
 
   dayOfWeek Int    // 0=Mon … 6=Sun
   mealType  String // "breakfast" | "lunch" | "dinner" | "snack"
 
   // Per-occurrence scaling — both stored; scaleFactor cached to avoid join during aggregation
   servings    Int
-  scaleFactor Float // = servings / recipe.servings
+  scaleFactor Float // = servings / recipe.servings (quick meals: always 1.0)
 
   customNote String? @db.Text // shown instead of recipe name if set
 
