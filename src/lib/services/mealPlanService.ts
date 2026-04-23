@@ -260,11 +260,62 @@ export async function updateMealPlanItem(
   });
   if (!item) return { error: "item_not_found" as const };
 
-  // For quick meals (no recipe), keep scaleFactor at 1.0
+  // ── Quick → Recipe type conversion ──────────────────────────────────────────
+  if (data.type === "recipe" && data.recipeId) {
+    const recipe = await db.recipe.findFirst({
+      where: { id: data.recipeId, userId },
+      select: { id: true, servings: true },
+    });
+    if (!recipe) return { error: "recipe_not_found" as const };
+
+    const servings = recipe.servings;
+    const scaleFactor = 1.0;
+
+    try {
+      const updated = await db.$transaction(async (tx) => {
+        if (data.clearShoppingItems) {
+          await tx.mealPlanItemShoppingItem.deleteMany({ where: { mealPlanItemId: itemId } });
+        }
+
+        const converted = await tx.mealPlanItem.update({
+          where: { id: itemId },
+          data: { type: "recipe", recipeId: recipe.id, servings, scaleFactor },
+          include: {
+            recipe: { select: { id: true, name: true, servings: true } },
+            shoppingItems: {
+              select: { id: true, itemName: true, quantity: true, unit: true, note: true, sortOrder: true },
+              orderBy: { sortOrder: "asc" as const },
+            },
+          },
+        });
+
+        // Pre-populate ingredient states for the shopping list
+        const ingredients = await tx.recipeIngredient.findMany({
+          where: { recipeId: recipe.id },
+          select: { id: true },
+        });
+        if (ingredients.length > 0) {
+          await tx.mealPlanIngredientState.createMany({
+            data: ingredients.map((ri) => ({ mealPlanItemId: itemId, recipeIngredientId: ri.id })),
+            skipDuplicates: true,
+          });
+        }
+
+        return converted;
+      });
+
+      return { item: updated };
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === "P2002") return { error: "conflict" as const };
+      throw err;
+    }
+  }
+
+  // ── Regular field update ─────────────────────────────────────────────────────
   const newServings = item.recipe ? (data.servings ?? item.servings) : 1;
-  const scaleFactor = item.recipe
-    ? newServings / item.recipe.servings
-    : 1.0;
+  const baseServings = item.recipe ? Math.max(1, item.recipe.servings) : 1;
+  const scaleFactor = item.recipe ? newServings / baseServings : 1.0;
 
   try {
     const updated = await db.mealPlanItem.update({
@@ -274,11 +325,16 @@ export async function updateMealPlanItem(
         ...(data.mealType !== undefined && { mealType: data.mealType }),
         ...(data.customNote !== undefined && { customNote: data.customNote }),
         ...(data.name !== undefined && { name: data.name }),
+        ...(data.includeInShopping !== undefined && { includeInShopping: data.includeInShopping }),
         servings: newServings,
         scaleFactor,
       },
       include: {
         recipe: { select: { id: true, name: true, servings: true } },
+        shoppingItems: {
+          select: { id: true, itemName: true, quantity: true, unit: true, note: true, sortOrder: true },
+          orderBy: { sortOrder: "asc" as const },
+        },
       },
     });
     return { item: updated };

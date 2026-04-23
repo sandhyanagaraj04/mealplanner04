@@ -47,6 +47,10 @@ export const UpdateItemSchema = z.object({
   customNote: z.string().max(500).nullable().optional(),
   recipeId: z.string().optional(),
   name: z.string().max(200).optional(),
+  // Type conversion: quick → recipe
+  type: z.enum(["quick", "recipe"]).optional(),
+  clearShoppingItems: z.boolean().optional(),
+  includeInShopping: z.boolean().optional(),
 });
 
 export const UpdateIngredientStateSchema = z.object({

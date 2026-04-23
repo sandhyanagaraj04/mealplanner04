@@ -55,6 +55,13 @@ function groupKey(ri: {
   return `raw:${ri.rawText.toLowerCase().trim()}`;
 }
 
+// Starting confidence based purely on what kind of key anchors the group.
+function initialConfidence(key: string): number {
+  if (key.startsWith("ingredient:")) return 1.0;
+  if (key.startsWith("normalized:")) return 0.9;
+  return 0.8; // "raw:" or "quick:"
+}
+
 // ─── Initialise state rows ────────────────────────────────────────────────────
 // Ensures every (MealPlanItem × RecipeIngredient) pair has a state row so the
 // client can always PATCH without needing to create first.
@@ -68,11 +75,7 @@ export async function initializeShoppingStates(planId: string, userId: string): 
   });
   if (!plan || plan.items.length === 0) return;
 
-  // Quick meals have no recipeId — skip them
-  const recipeItems = plan.items.filter((i) => i.recipeId !== null);
-  if (recipeItems.length === 0) return;
-
-  const recipeIds = [...new Set(recipeItems.map((i) => i.recipeId as string))];
+  const recipeIds = [...new Set(plan.items.map((i) => i.recipeId).filter((id): id is string => id !== null))];
   const riRows = await db.recipeIngredient.findMany({
     where: { recipeId: { in: recipeIds } },
     select: { id: true, recipeId: true },
@@ -87,8 +90,8 @@ export async function initializeShoppingStates(planId: string, userId: string): 
   }
 
   const pairs: { mealPlanItemId: string; recipeIngredientId: string }[] = [];
-  for (const item of recipeItems) {
-    for (const riId of riByRecipe.get(item.recipeId as string) ?? []) {
+  for (const item of plan.items) {
+    for (const riId of (item.recipeId ? riByRecipe.get(item.recipeId) : undefined) ?? []) {
       pairs.push({ mealPlanItemId: item.id, recipeIngredientId: riId });
     }
   }
@@ -164,6 +167,10 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
               note: true,
             },
           },
+          shoppingItems: {
+            select: { id: true, itemName: true, quantity: true, unit: true, note: true },
+            orderBy: { sortOrder: "asc" },
+          },
         },
       },
     },
@@ -171,20 +178,15 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
 
   if (!plan) return null;
 
-  // Quick meals (no recipeId) have no ingredients to aggregate
-  const recipeItems = plan.items.filter((i) => i.recipeId !== null);
-
-  const recipeIds = [...new Set(recipeItems.map((i) => i.recipeId as string))];
+  const recipeIds = [...new Set(plan.items.map((i) => i.recipeId).filter((id): id is string => id !== null))];
   const ingredients = await db.recipeIngredient.findMany({
     where: { recipeId: { in: recipeIds } },
     include: { ingredient: true },
   });
 
-  const riMap = new Map(ingredients.map((ri) => [ri.id, ri]));
-
   type StateRow = (typeof plan.items)[0]["ingredientStates"][0];
   const stateIndex = new Map<string, Map<string, StateRow>>();
-  for (const item of recipeItems) {
+  for (const item of plan.items) {
     const byRi = new Map<string, StateRow>();
     for (const s of item.ingredientStates) byRi.set(s.recipeIngredientId, s);
     stateIndex.set(item.id, byRi);
@@ -194,13 +196,21 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
   const groups = new Map<string, ShoppingListItem>();
   // Track first merge failure per group key
   const mergeFailures = new Map<string, MergeFailReason>();
+  // Tracks evolving confidence for each group (may be lowered by cross-type merges)
+  const groupConfidence = new Map<string, number>();
 
-  for (const item of recipeItems) {
+  // ── Pass 1: recipe meals ───────────────────────────────────────────────────
+  for (const item of plan.items) {
+    if (!item.recipeId || !item.recipe) continue;
+    if (!item.includeInShopping) continue; // user opted this meal out of the shopping list
     const recipeIngredients = ingredients.filter((ri) => ri.recipeId === item.recipeId);
     const stateByRi = stateIndex.get(item.id) ?? new Map();
 
     for (const ri of recipeIngredients) {
       const stateRow = stateByRi.get(ri.id);
+
+      // Rule: exclude ingredients the user already has
+      if (stateRow?.state === "HAVE_IT") continue;
 
       const scaledQty = scaleQuantity(ri.quantity, item.scaleFactor);
       const effectiveQty = stateRow?.quantityOverride ?? scaledQty;
@@ -210,9 +220,10 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
         stateId: stateRow?.id ?? null,
         mealPlanItemId: item.id,
         recipeIngredientId: ri.id,
+        quickShoppingItemId: null,
         dayOfWeek: item.dayOfWeek as DayOfWeek,
         mealType: item.mealType as MealType,
-        recipeName: item.recipe?.name ?? "",
+        recipeName: item.recipe!.name,
         scaledQuantity: scaledQty,
         unit: ri.unit,
         state: (stateRow?.state ?? "PENDING") as ShoppingState,
@@ -224,17 +235,20 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
       const key = groupKey(ri);
 
       if (!groups.has(key)) {
+        const conf = initialConfidence(key);
         groups.set(key, {
           ingredientId: ri.ingredientId ?? null,
-          ingredientName: ri.ingredient?.name ?? ri.displayName ?? ri.rawText,
+          ingredientName: ri.ingredient?.name ?? ri.displayName ?? (ri.rawText.trim() || "Unknown ingredient"),
           category: ri.ingredient?.category ?? null,
           totalQuantity: effectiveQty != null ? roundQty(effectiveQty) : null,
           unit: effectiveUnit,
           unitConverted: false,
           sourceCount: 1,
           mergeWarning: null,
+          mergeConfidence: conf,
           sources: [source],
         });
+        groupConfidence.set(key, conf);
         if (effectiveQty == null) {
           mergeFailures.set(key, { kind: "unknown_qty" });
         }
@@ -246,10 +260,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
       group.sourceCount += 1;
 
       // ── Unit aggregation with conversion ──────────────────────────────────
-      if (mergeFailures.has(key)) {
-        // Already failed — just accumulate sources
-        continue;
-      }
+      if (mergeFailures.has(key)) continue;
 
       if (effectiveQty == null || group.totalQuantity == null) {
         group.totalQuantity = null;
@@ -267,14 +278,12 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
         continue;
       }
 
-      // Units differ — check for mixed unit presence first
       if (effectiveUnit === null || group.unit === null) {
         group.totalQuantity = null;
         mergeFailures.set(key, { kind: "mixed_unit_presence" });
         continue;
       }
 
-      // Both have units but they differ — attempt dimensional conversion
       const converted = convertUnit(effectiveQty, effectiveUnit, group.unit);
       if (converted !== null) {
         group.totalQuantity = roundQty(group.totalQuantity + converted);
@@ -282,7 +291,6 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
         continue;
       }
 
-      // Conversion failed — record why
       group.totalQuantity = null;
       const dA = getUnitDimension(group.unit);
       const dB = getUnitDimension(effectiveUnit);
@@ -295,10 +303,122 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
     }
   }
 
-  // Stamp merge warnings onto groups
+  // ── Pass 2: quick meals ────────────────────────────────────────────────────
+  // Quick meal shopping items enter the same groups as recipe ingredients when
+  // the item name matches a normalised group key exactly.  Otherwise they form
+  // their own "quick:" group.  Cross-type merges lower confidence to 0.7.
+  for (const item of plan.items) {
+    if (item.type !== "quick") continue;
+    if (!item.shoppingItems || item.shoppingItems.length === 0) continue;
+
+    for (const si of item.shoppingItems) {
+      const itemNameNorm = (si.itemName ?? "").toLowerCase().trim();
+      if (!itemNameNorm) continue; // defensive: skip blank names
+
+      // Try to merge into an existing recipe group via normalised-name key
+      const normalizedKey = `normalized:${itemNameNorm}`;
+      const isCrossType = groups.has(normalizedKey);
+      const key = isCrossType ? normalizedKey : `quick:${itemNameNorm}`;
+
+      const qty = si.quantity ?? null;
+      const unit = si.unit ?? null;
+
+      const source: ShoppingSource = {
+        stateId: null,
+        mealPlanItemId: item.id,
+        recipeIngredientId: null,
+        quickShoppingItemId: si.id,
+        dayOfWeek: item.dayOfWeek as DayOfWeek,
+        mealType: item.mealType as MealType,
+        recipeName: item.name ?? null,
+        scaledQuantity: qty,
+        unit,
+        state: "PENDING",
+        quantityOverride: null,
+        unitOverride: null,
+        note: si.note ?? null,
+      };
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          ingredientId: null,
+          ingredientName: si.itemName.trim() || "Unknown item",
+          category: null,
+          totalQuantity: qty != null ? roundQty(qty) : null,
+          unit,
+          unitConverted: false,
+          sourceCount: 1,
+          mergeWarning: null,
+          mergeConfidence: 0.8,
+          sources: [source],
+        });
+        groupConfidence.set(key, 0.8);
+        if (qty == null) mergeFailures.set(key, { kind: "unknown_qty" });
+        continue;
+      }
+
+      const group = groups.get(key)!;
+      group.sources.push(source);
+      group.sourceCount += 1;
+
+      // Cross-type merges are inherently less certain (name matched, but one side
+      // was user-typed free text)
+      if (isCrossType) {
+        const prev = groupConfidence.get(key) ?? 1.0;
+        groupConfidence.set(key, Math.min(prev, 0.7));
+      }
+
+      if (mergeFailures.has(key)) continue;
+
+      if (qty == null || group.totalQuantity == null) {
+        group.totalQuantity = null;
+        mergeFailures.set(key, { kind: "unknown_qty" });
+        continue;
+      }
+
+      if (unit === null && group.unit === null) {
+        group.totalQuantity = roundQty(group.totalQuantity + qty);
+        continue;
+      }
+
+      if (unit === group.unit) {
+        group.totalQuantity = roundQty(group.totalQuantity + qty);
+        continue;
+      }
+
+      if (unit === null || group.unit === null) {
+        group.totalQuantity = null;
+        mergeFailures.set(key, { kind: "mixed_unit_presence" });
+        continue;
+      }
+
+      const converted = convertUnit(qty, unit, group.unit);
+      if (converted !== null) {
+        group.totalQuantity = roundQty(group.totalQuantity + converted);
+        group.unitConverted = true;
+        continue;
+      }
+
+      group.totalQuantity = null;
+      const dA = getUnitDimension(group.unit);
+      const dB = getUnitDimension(unit);
+      mergeFailures.set(
+        key,
+        dA !== dB
+          ? { kind: "incompatible_dims", unitA: group.unit, unitB: unit }
+          : { kind: "same_dim_no_convert", unitA: group.unit, unitB: unit }
+      );
+    }
+  }
+
+  // Stamp merge warnings and final confidence onto groups
   for (const [key, reason] of mergeFailures) {
     const group = groups.get(key);
     if (group) group.mergeWarning = mergeWarningText(reason);
+  }
+  for (const [key, conf] of groupConfidence) {
+    const group = groups.get(key);
+    if (group) group.mergeConfidence = conf;
   }
 
   // ── Sort: resolved first, then alphabetically ──────────────────────────────
