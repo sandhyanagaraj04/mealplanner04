@@ -34,6 +34,7 @@ type PlanItem = {
   mealType: MealType;
   servings: number;
   customNote?: string | null;
+  includeInShopping?: boolean;
   recipe: { id: string; name: string; servings: number } | null;
   shoppingItems?: PlanItemShoppingItem[];
 };
@@ -573,6 +574,29 @@ export default function WeekPlanner({
     }
   }
 
+  async function toggleIncludeInShopping(item: PlanItem) {
+    const next = item.includeInShopping === false ? true : false;
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, includeInShopping: next } : i))
+    );
+    try {
+      const res = await fetch(`/api/meal-plans/${planId}/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeInShopping: next }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Failed");
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...data.data, mealType: data.data.mealType as MealType } : i))
+      );
+    } catch {
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? item : i))
+      );
+    }
+  }
+
   async function pasteToSlot(day: number, meal: MealType) {
     if (!copySource) return;
     const src = copySource;
@@ -803,6 +827,17 @@ export default function WeekPlanner({
                                   <Btn onClick={() => updateServings(item, 1)} title="More servings" variant="ghost">+</Btn>
                                   <span className="text-xs text-[var(--muted)]">🧑</span>
                                 </div>
+                              )}
+
+                              {/* Shopping list toggle — recipe meals only */}
+                              {item.type !== "quick" && (
+                                <Btn
+                                  onClick={() => toggleIncludeInShopping(item)}
+                                  title={item.includeInShopping !== false ? "Exclude from shopping list" : "Include in shopping list"}
+                                  variant={item.includeInShopping !== false ? "ghost" : "danger"}
+                                >
+                                  🛒
+                                </Btn>
                               )}
 
                               {/* Copy */}

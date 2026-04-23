@@ -202,6 +202,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
   // ── Pass 1: recipe meals ───────────────────────────────────────────────────
   for (const item of plan.items) {
     if (!item.recipeId || !item.recipe) continue;
+    if (!item.includeInShopping) continue; // user opted this meal out of the shopping list
     const recipeIngredients = ingredients.filter((ri) => ri.recipeId === item.recipeId);
     const stateByRi = stateIndex.get(item.id) ?? new Map();
 

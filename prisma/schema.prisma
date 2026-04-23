@@ -221,7 +221,8 @@ model MealPlanItem {
   servings    Int
   scaleFactor Float // = servings / recipe.servings (quick meals: always 1.0)
 
-  customNote String? @db.Text // shown instead of recipe name if set
+  customNote        String? @db.Text // shown instead of recipe name if set
+  includeInShopping Boolean @default(true) // recipe meals only; quick meals always derive from shoppingItems
 
   ingredientStates MealPlanIngredientState[]
   shoppingItems    MealPlanItemShoppingItem[]

@@ -67,6 +67,7 @@ export default async function PlannerPage({ params }: Params) {
     mealType: item.mealType as MealType,
     servings: item.servings,
     customNote: item.customNote ?? null,
+    includeInShopping: item.includeInShopping,
     recipe: item.recipe
       ? { id: item.recipe.id, name: item.recipe.name, servings: item.recipe.servings }
       : null,

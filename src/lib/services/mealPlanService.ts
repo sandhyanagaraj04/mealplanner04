@@ -324,6 +324,7 @@ export async function updateMealPlanItem(
         ...(data.mealType !== undefined && { mealType: data.mealType }),
         ...(data.customNote !== undefined && { customNote: data.customNote }),
         ...(data.name !== undefined && { name: data.name }),
+        ...(data.includeInShopping !== undefined && { includeInShopping: data.includeInShopping }),
         servings: newServings,
         scaleFactor,
       },
