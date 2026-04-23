@@ -11,6 +11,7 @@
 
 import { parse as parseHtml } from "node-html-parser";
 import type { ExtractedContent, ParseWarning } from "@/types";
+import { extractFromText } from "@/lib/parsers/textExtractor";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -50,6 +51,7 @@ function validateUrl(rawUrl: string): ValidateUrlResult {
 // ─── Video host detection ─────────────────────────────────────────────────────
 // These hosts serve HTML but contain no parseable recipe content. Detected early
 // so the user gets a clear message rather than a confusing low-confidence result.
+// Instagram is handled separately via oEmbed — see fetchInstagramCaption() below.
 
 const VIDEO_HOSTNAMES = new Set([
   "www.youtube.com",
@@ -70,15 +72,76 @@ const VIDEO_HOSTNAMES = new Set([
 ]);
 
 function isVideoUrl(url: URL): boolean {
-  if (VIDEO_HOSTNAMES.has(url.hostname)) return true;
-  // Instagram /reel/ and /p/ paths are video-first
-  if (
-    (url.hostname === "www.instagram.com" || url.hostname === "instagram.com") &&
-    /^\/(reel|p)\//.test(url.pathname)
-  ) {
-    return true;
+  return VIDEO_HOSTNAMES.has(url.hostname);
+}
+
+// ─── Instagram oEmbed ─────────────────────────────────────────────────────────
+// Fetches the post caption via Meta's oEmbed endpoint.
+// Requires INSTAGRAM_OEMBED_TOKEN (format: "{app-id}|{app-secret}").
+
+const INSTAGRAM_HOSTNAMES = new Set(["www.instagram.com", "instagram.com"]);
+
+function isInstagramReelUrl(url: URL): boolean {
+  return INSTAGRAM_HOSTNAMES.has(url.hostname) && /^\/(reel|p)\//.test(url.pathname);
+}
+
+function cleanInstagramCaption(caption: string): string {
+  // Drop trailing lines that are only hashtags / mentions / whitespace
+  const lines = caption.split("\n");
+  let end = lines.length;
+  while (end > 0 && /^[#@\s]*$/.test(lines[end - 1])) end--;
+  return lines.slice(0, end).join("\n").trim();
+}
+
+async function fetchInstagramCaption(
+  rawUrl: string
+): Promise<{ caption: string | null; errorMessage: string | null }> {
+  const token = process.env.INSTAGRAM_OEMBED_TOKEN;
+  if (!token) {
+    return {
+      caption: null,
+      errorMessage:
+        "Instagram import requires INSTAGRAM_OEMBED_TOKEN to be configured. " +
+        "Create a Meta Developer App and set the env var to your app access token ({app-id}|{app-secret}).",
+    };
   }
-  return false;
+
+  const endpoint = new URL("https://graph.facebook.com/v22.0/instagram_oembed");
+  endpoint.searchParams.set("url", rawUrl);
+  endpoint.searchParams.set("fields", "title,author_name");
+  endpoint.searchParams.set("access_token", token);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(endpoint.toString(), { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      const body = await res.text();
+      return {
+        caption: null,
+        errorMessage: `Instagram oEmbed API returned ${res.status}: ${body.slice(0, 200)}`,
+      };
+    }
+
+    const data = (await res.json()) as { title?: string };
+    const caption = data.title?.trim() ?? null;
+    if (!caption) {
+      return { caption: null, errorMessage: "Instagram oEmbed returned no caption text." };
+    }
+    return { caption, errorMessage: null };
+  } catch (err) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    return {
+      caption: null,
+      errorMessage: isTimeout
+        ? `Instagram oEmbed request timed out after ${FETCH_TIMEOUT_MS / 1000}s.`
+        : `Instagram oEmbed fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
 // ─── Schema.org JSON-LD extraction ────────────────────────────────────────────
@@ -304,6 +367,57 @@ export async function fetchUrl(rawUrl: string): Promise<FetchResult> {
             field: null,
             context: rawUrl,
           },
+        ],
+      },
+    };
+  }
+
+  // ── Instagram Reels / Posts ─────────────────────────────────────────────────
+  // Captions are fetched via Meta's oEmbed API and fed into the text extractor.
+  if (isInstagramReelUrl(url)) {
+    const { caption, errorMessage } = await fetchInstagramCaption(rawUrl);
+
+    if (!caption) {
+      return {
+        rawContent: "",
+        extracted: {
+          method: "schema_org",
+          title: null,
+          servings: null,
+          ingredientLines: [],
+          instructionText: "",
+          baseConfidence: 0,
+          warnings: [
+            {
+              code: "URL_VIDEO_DETECTED",
+              message: errorMessage ?? "Could not retrieve Instagram caption.",
+              field: null,
+              context: rawUrl,
+            },
+          ],
+        },
+      };
+    }
+
+    const cleanCaption = cleanInstagramCaption(caption);
+    const extracted = extractFromText(cleanCaption);
+
+    return {
+      rawContent: cleanCaption,
+      extracted: {
+        ...extracted,
+        // Instagram captions rarely use "Ingredients:" headers, so confidence is
+        // capped at 0.6 to ensure the review step is always shown.
+        baseConfidence: Math.min(extracted.baseConfidence, 0.6),
+        warnings: [
+          {
+            code: "URL_NO_STRUCTURED_DATA",
+            message:
+              "Imported from Instagram caption — ingredients and steps may need manual cleanup.",
+            field: null,
+            context: rawUrl,
+          },
+          ...extracted.warnings,
         ],
       },
     };

@@ -18,17 +18,20 @@ const VIDEO_HOSTNAME_PATTERNS = [
 function isVideoUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
-    if (VIDEO_HOSTNAME_PATTERNS.some((re) => re.test(u.hostname))) return true;
-    if (
-      /^(www\.)?instagram\.com$/.test(u.hostname) &&
-      /^\/(reel|p)\//.test(u.pathname)
-    ) {
-      return true;
-    }
+    return VIDEO_HOSTNAME_PATTERNS.some((re) => re.test(u.hostname));
   } catch {
     // not a valid URL yet — no warning
   }
   return false;
+}
+
+function isInstagramUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return /^(www\.)?instagram\.com$/.test(u.hostname) && /^\/(reel|p)\//.test(u.pathname);
+  } catch {
+    return false;
+  }
 }
 
 export default function IngestPage() {
@@ -40,6 +43,7 @@ export default function IngestPage() {
   const [error, setError] = useState<string | null>(null);
 
   const videoWarning = mode === "url" && url.trim().length > 0 && isVideoUrl(url.trim());
+  const instagramHint = mode === "url" && url.trim().length > 0 && isInstagramUrl(url.trim());
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -128,6 +132,13 @@ export default function IngestPage() {
                   Paste Text
                 </button>{" "}
                 instead.
+              </div>
+            )}
+            {instagramHint && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                <strong>Instagram URL detected.</strong> We&apos;ll extract the recipe from the
+                post caption. Results depend on how the creator formatted their caption — review
+                the ingredients and steps carefully before saving.
               </div>
             )}
           </div>
