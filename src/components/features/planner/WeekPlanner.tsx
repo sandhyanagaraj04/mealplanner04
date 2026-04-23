@@ -123,7 +123,7 @@ function Btn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`rounded p-1 text-xs transition-colors disabled:opacity-30 ${cls}`}
+      className={`rounded p-2 sm:p-1 text-xs transition-colors disabled:opacity-30 ${cls}`}
     >
       {children}
     </button>
@@ -163,7 +163,7 @@ function RecipePicker({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Search recipes…"
-          className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+          className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-2 sm:py-1 text-sm outline-none focus:border-[var(--accent)]"
           onKeyDown={(e) => e.key === "Escape" && onClose()}
         />
         <Btn onClick={onClose} title="Cancel" variant="ghost">✕</Btn>
@@ -255,8 +255,8 @@ function QuickMealForm({
 
   return (
     <div className="flex flex-col gap-2 pt-1">
-      {/* Name row */}
-      <div className="flex gap-1">
+      {/* Name + Add — stacks vertically on mobile so Add is always visible */}
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:gap-1">
         <input
           ref={nameRef}
           type="text"
@@ -267,15 +267,15 @@ function QuickMealForm({
             if (e.key === "Escape") onCancel();
           }}
           placeholder="Meal name…"
-          className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+          className="flex-1 rounded border border-[var(--border)] bg-white px-3 py-2.5 sm:px-2 sm:py-1 text-sm outline-none focus:border-[var(--accent)]"
         />
         <button
           type="button"
           onClick={handleSubmit}
           disabled={!name.trim()}
-          className="rounded bg-[var(--accent)] px-2 py-1 text-xs text-white disabled:opacity-40 hover:bg-[var(--accent-hover)]"
+          className="w-full sm:w-auto rounded bg-[var(--accent)] px-3 py-2.5 sm:py-1 text-sm sm:text-xs font-medium text-white disabled:opacity-40 hover:bg-[var(--accent-hover)]"
         >
-          Add
+          Save meal
         </button>
       </div>
 
@@ -285,7 +285,7 @@ function QuickMealForm({
         value={note}
         onChange={(e) => setNote(e.target.value)}
         placeholder="Notes (optional)…"
-        className="rounded border border-[var(--border)] bg-white px-2 py-1 text-xs text-[var(--muted)] outline-none focus:border-[var(--accent)] focus:text-[var(--foreground)]"
+        className="rounded border border-[var(--border)] bg-white px-3 py-2 sm:px-2 sm:py-1 text-sm sm:text-xs text-[var(--muted)] outline-none focus:border-[var(--accent)] focus:text-[var(--foreground)]"
       />
 
       {/* Shopping items — collapsed by default */}
@@ -296,54 +296,54 @@ function QuickMealForm({
             if (!shoppingOpen) { setShoppingOpen(true); if (drafts.length === 0) addDraft(); }
             else setShoppingOpen(false);
           }}
-          className="w-full text-left px-2 py-1.5 text-xs text-[var(--muted)] hover:text-[var(--foreground)] flex items-center justify-between transition-colors"
+          className="w-full text-left px-3 py-2.5 sm:px-2 sm:py-1.5 text-sm sm:text-xs text-[var(--muted)] hover:text-[var(--foreground)] flex items-center justify-between transition-colors"
         >
           <span>Need to buy anything for this meal?</span>
           <span>{shoppingOpen ? "▴" : "▾"}</span>
         </button>
 
         {shoppingOpen && (
-          <div className="flex flex-col gap-1 px-2 pb-2 border-t border-[var(--border)]">
+          <div className="flex flex-col gap-2 sm:gap-1 px-3 sm:px-2 pb-3 sm:pb-2 border-t border-[var(--border)]">
             {drafts.map((d) => (
-              <div key={d._key} className="flex flex-col gap-0.5 pt-1">
+              <div key={d._key} className="flex flex-col gap-1 pt-2 sm:pt-1">
                 {/* Item name + remove */}
-                <div className="flex gap-1">
+                <div className="flex gap-1.5 sm:gap-1">
                   <input
                     type="text"
                     value={d.item_name}
                     onChange={(e) => updateDraft(d._key, "item_name", e.target.value)}
                     placeholder="Item name…"
-                    className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-1 text-xs outline-none focus:border-[var(--accent)]"
+                    className="flex-1 rounded border border-[var(--border)] bg-white px-3 py-2 sm:px-2 sm:py-1 text-sm sm:text-xs outline-none focus:border-[var(--accent)]"
                   />
                   <button
                     type="button"
                     onClick={() => removeDraft(d._key)}
-                    className="text-[var(--muted)] hover:text-red-500 px-1 text-xs"
+                    className="text-[var(--muted)] hover:text-red-500 px-2 py-2 sm:px-1 text-sm sm:text-xs"
                   >✕</button>
                 </div>
-                {/* Qty / unit / note */}
-                <div className="flex gap-1">
+                {/* Qty / unit / note — full-width on mobile */}
+                <div className="grid grid-cols-3 gap-1.5 sm:flex sm:gap-1">
                   <input
                     type="number"
                     value={d.quantity}
                     onChange={(e) => updateDraft(d._key, "quantity", e.target.value)}
                     placeholder="Qty"
                     min="0"
-                    className="w-14 rounded border border-[var(--border)] bg-white px-2 py-0.5 text-xs outline-none focus:border-[var(--accent)]"
+                    className="rounded border border-[var(--border)] bg-white px-2 py-2 sm:w-14 sm:py-0.5 text-sm sm:text-xs outline-none focus:border-[var(--accent)]"
                   />
                   <input
                     type="text"
                     value={d.unit}
                     onChange={(e) => updateDraft(d._key, "unit", e.target.value)}
                     placeholder="Unit"
-                    className="w-16 rounded border border-[var(--border)] bg-white px-2 py-0.5 text-xs outline-none focus:border-[var(--accent)]"
+                    className="rounded border border-[var(--border)] bg-white px-2 py-2 sm:w-16 sm:py-0.5 text-sm sm:text-xs outline-none focus:border-[var(--accent)]"
                   />
                   <input
                     type="text"
                     value={d.note}
                     onChange={(e) => updateDraft(d._key, "note", e.target.value)}
                     placeholder="Note"
-                    className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-0.5 text-xs outline-none focus:border-[var(--accent)]"
+                    className="rounded border border-[var(--border)] bg-white px-2 py-2 sm:flex-1 sm:py-0.5 text-sm sm:text-xs outline-none focus:border-[var(--accent)]"
                   />
                 </div>
               </div>
@@ -352,7 +352,7 @@ function QuickMealForm({
             <button
               type="button"
               onClick={addDraft}
-              className="mt-1 text-xs text-[var(--accent)] hover:underline text-left"
+              className="mt-1 py-1 text-sm sm:text-xs text-[var(--accent)] hover:underline text-left"
             >
               + Add item
             </button>
@@ -743,15 +743,15 @@ export default function WeekPlanner({
               return (
                 <div
                   key={meal}
-                  className={`flex gap-0 ${!isLastMeal ? "border-b border-[var(--border)]" : ""}`}
+                  className={`flex flex-col sm:flex-row gap-0 ${!isLastMeal ? "border-b border-[var(--border)]" : ""}`}
                 >
-                  {/* Meal label */}
-                  <div className="w-24 flex-shrink-0 flex items-start px-3 pt-2.5 text-xs font-medium text-[var(--muted)] uppercase tracking-wide">
+                  {/* Meal label — inline above content on mobile, sidebar on sm+ */}
+                  <div className="sm:w-24 sm:flex-shrink-0 flex items-center sm:items-start px-3 pt-2 pb-0.5 sm:pt-2.5 sm:pb-0 text-[10px] sm:text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">
                     {MEAL_LABELS[meal]}
                   </div>
 
-                  {/* Slot content */}
-                  <div className="flex-1 min-w-0 px-2 py-2">
+                  {/* Slot content — full width on mobile */}
+                  <div className="flex-1 min-w-0 px-3 sm:px-2 pb-3 sm:py-2 pt-0 sm:pt-2">
                     {errMsg && (
                       <p className="text-xs text-red-600 mb-1">{errMsg}</p>
                     )}
@@ -898,25 +898,25 @@ export default function WeekPlanner({
                       /* Picker with recipe/quick tabs */
                       <div className="flex flex-col gap-1 pt-1">
                         {/* Mode tabs */}
-                        <div className="flex gap-1 mb-1">
+                        <div className="flex gap-2 sm:gap-1 mb-2 sm:mb-1">
                           <button
                             type="button"
                             onClick={() => setPickerSlot((s) => s ? { ...s, mode: "recipe" } : s)}
-                            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${pickerSlot?.mode === "recipe" ? "bg-[var(--accent)] text-white" : "bg-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                            className={`flex-1 sm:flex-none px-3 sm:px-2 py-2 sm:py-0.5 rounded text-sm sm:text-xs font-medium transition-colors ${pickerSlot?.mode === "recipe" ? "bg-[var(--accent)] text-white" : "bg-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
                           >
                             Recipe
                           </button>
                           <button
                             type="button"
                             onClick={() => setPickerSlot((s) => s ? { ...s, mode: "quick" } : s)}
-                            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${pickerSlot?.mode === "quick" ? "bg-[var(--accent)] text-white" : "bg-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+                            className={`flex-1 sm:flex-none px-3 sm:px-2 py-2 sm:py-0.5 rounded text-sm sm:text-xs font-medium transition-colors ${pickerSlot?.mode === "quick" ? "bg-[var(--accent)] text-white" : "bg-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
                           >
                             Quick meal
                           </button>
                           <button
                             type="button"
                             onClick={() => setPickerSlot(null)}
-                            className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] px-1"
+                            className="text-sm sm:text-xs text-[var(--muted)] hover:text-[var(--foreground)] px-2 py-2 sm:px-1 sm:py-0"
                             title="Cancel"
                           >✕</button>
                         </div>

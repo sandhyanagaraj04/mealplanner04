@@ -30,12 +30,14 @@ export default async function RootLayout({
             <Link href="/" className="font-semibold text-[var(--accent)] hover:opacity-80 transition-opacity">
               MealPlanner
             </Link>
-            <div className="flex items-center gap-4">
-              <Link href="/recipes" className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">Recipes</Link>
-              <Link href="/plans" className="text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">Plans</Link>
+            <div className="flex items-center gap-2 sm:gap-4">
+              <Link href="/recipes" className="hidden sm:inline text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">Recipes</Link>
+              <Link href="/plans" className="hidden sm:inline text-sm text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">Plans</Link>
+              <Link href="/recipes" className="sm:hidden text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">Recipes</Link>
+              <Link href="/plans" className="sm:hidden text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">Plans</Link>
               <Link
                 href="/ingest"
-                className="text-sm font-medium text-white bg-[var(--accent)] hover:bg-[var(--accent-hover)] px-3 py-1.5 rounded-lg transition-colors"
+                className="text-xs sm:text-sm font-medium text-white bg-[var(--accent)] hover:bg-[var(--accent-hover)] px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors"
               >
                 + Import
               </Link>
