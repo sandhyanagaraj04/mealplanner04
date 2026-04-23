@@ -27,6 +27,10 @@ function weekWithItems() {
         recipe: {
           select: { id: true, name: true, servings: true, prepMins: true, cookMins: true },
         },
+        shoppingItems: {
+          select: { id: true, itemName: true, quantity: true, unit: true, note: true, sortOrder: true },
+          orderBy: { sortOrder: "asc" as const },
+        },
       },
       orderBy: [
         { dayOfWeek: "asc" as const },
@@ -110,25 +114,53 @@ export async function addMealPlanItem(planId: string, userId: string, data: AddI
   if (!plan) return { error: "not_found" as const };
 
   if (data.type === "quick") {
-    // Quick meals: no recipe lookup, servings=1, scaleFactor=1.0
     try {
-      const item = await db.mealPlanItem.create({
-        data: {
-          mealPlanWeekId: planId,
-          type: "quick",
-          name: data.name,
-          recipeId: undefined,
-          dayOfWeek: data.dayOfWeek,
-          mealType: data.mealType,
-          servings: 1,
-          scaleFactor: 1.0,
-          customNote: data.customNote,
-        },
-        include: {
-          recipe: {
-            select: { id: true, name: true, servings: true },
+      const item = await db.$transaction(async (tx) => {
+        const created = await tx.mealPlanItem.create({
+          data: {
+            mealPlanWeekId: planId,
+            type: "quick",
+            name: data.name,
+            dayOfWeek: data.dayOfWeek,
+            mealType: data.mealType,
+            servings: 1,
+            scaleFactor: 1.0,
+            customNote: data.customNote,
           },
-        },
+          include: {
+            recipe: { select: { id: true, name: true, servings: true } },
+            shoppingItems: {
+              select: { id: true, itemName: true, quantity: true, unit: true, note: true, sortOrder: true },
+              orderBy: { sortOrder: "asc" as const },
+            },
+          },
+        });
+
+        if (data.shopping_items && data.shopping_items.length > 0) {
+          await tx.mealPlanItemShoppingItem.createMany({
+            data: data.shopping_items.map((si, idx) => ({
+              mealPlanItemId: created.id,
+              itemName: si.item_name,
+              quantity: si.quantity,
+              unit: si.unit,
+              note: si.note,
+              sortOrder: idx,
+            })),
+          });
+          // Re-fetch to return the created shopping items
+          return tx.mealPlanItem.findUniqueOrThrow({
+            where: { id: created.id },
+            include: {
+              recipe: { select: { id: true, name: true, servings: true } },
+              shoppingItems: {
+                select: { id: true, itemName: true, quantity: true, unit: true, note: true, sortOrder: true },
+                orderBy: { sortOrder: "asc" as const },
+              },
+            },
+          });
+        }
+
+        return created;
       });
 
       track("meal_added", {
@@ -171,8 +203,10 @@ export async function addMealPlanItem(planId: string, userId: string, data: AddI
         customNote: data.customNote,
       },
       include: {
-        recipe: {
-          select: { id: true, name: true, servings: true },
+        recipe: { select: { id: true, name: true, servings: true } },
+        shoppingItems: {
+          select: { id: true, itemName: true, quantity: true, unit: true, note: true, sortOrder: true },
+          orderBy: { sortOrder: "asc" as const },
         },
       },
     });

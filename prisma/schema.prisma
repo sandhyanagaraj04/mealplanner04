@@ -224,10 +224,29 @@ model MealPlanItem {
   customNote String? @db.Text // shown instead of recipe name if set
 
   ingredientStates MealPlanIngredientState[]
+  shoppingItems    MealPlanItemShoppingItem[]
 
   @@unique([mealPlanWeekId, dayOfWeek, mealType])
   @@index([mealPlanWeekId])
   @@index([recipeId])
+}
+
+// Manual shopping items attached to a quick meal.
+// Not used for recipe meals (those derive items from RecipeIngredient).
+model MealPlanItemShoppingItem {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  mealPlanItemId String
+  mealPlanItem   MealPlanItem @relation(fields: [mealPlanItemId], references: [id], onDelete: Cascade)
+
+  itemName  String
+  quantity  Float?
+  unit      String?
+  note      String?
+  sortOrder Int     @default(0)
+
+  @@index([mealPlanItemId])
 }
 
 // ─── Shopping list state ──────────────────────────────────────────────────────

@@ -13,12 +13,20 @@ export const MealPlanUpdateSchema = z.object({
   notes: z.string().max(2000).nullable().optional(),
 });
 
+export const ShoppingItemSchema = z.object({
+  item_name: z.string().min(1).max(200),
+  quantity: z.number().positive().optional(),
+  unit: z.string().max(50).optional(),
+  note: z.string().max(500).optional(),
+});
+
 const AddQuickItemSchema = z.object({
   type: z.literal("quick"),
   name: z.string().min(1).max(200),
   dayOfWeek: z.number().int().min(0).max(6),
   mealType: z.enum(MEAL_TYPES),
   customNote: z.string().optional(),
+  shopping_items: z.array(ShoppingItemSchema).max(50).optional(),
 });
 
 const AddRecipeItemSchema = z.object({
@@ -53,3 +61,4 @@ export type MealPlanUpdate = z.infer<typeof MealPlanUpdateSchema>;
 export type AddItem = z.infer<typeof AddItemSchema>;
 export type UpdateItem = z.infer<typeof UpdateItemSchema>;
 export type UpdateIngredientState = z.infer<typeof UpdateIngredientStateSchema>;
+export type ShoppingItemInput = z.infer<typeof ShoppingItemSchema>;
