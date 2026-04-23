@@ -256,7 +256,11 @@ export default function ShoppingListView({ planId, list }: Props) {
       <div className="flex flex-col gap-4">
         <h1 className="text-xl font-bold">Shopping List</h1>
         <p className="text-sm text-[var(--muted)] italic">
-          No meals planned this week — add some recipes to the planner first.
+          Nothing to shop for this week.
+        </p>
+        <p className="text-xs text-[var(--muted)]">
+          Recipe meals with ingredients appear here automatically. For quick meals, add
+          shopping items when planning the meal.
         </p>
       </div>
     );
@@ -471,20 +475,27 @@ function ShoppingRow({
                   }`}
                 >
                   {sourceMeta(src)}
+                  {/* quick-meal sources have no persisted state — make it visible */}
+                  {src.stateId === null && (
+                    <span className="ml-1 opacity-50">(quick)</span>
+                  )}
                 </span>
                 <span className="text-xs text-[var(--muted)] tabular-nums flex-shrink-0">
                   {fmtQty(displayQty, displayUnit)}
                 </span>
-                <button
-                  onClick={() => onHaveItSource(src)}
-                  className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded border transition-colors ${
-                    ss === "HAVE_IT"
-                      ? "border-[var(--muted)] text-[var(--muted)] bg-[var(--muted)]/10"
-                      : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--muted)]"
-                  }`}
-                >
-                  {ss === "HAVE_IT" ? "✓" : "have"}
-                </button>
+                {/* Only show have-it for sources that can persist state */}
+                {src.stateId !== null && (
+                  <button
+                    onClick={() => onHaveItSource(src)}
+                    className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded border transition-colors ${
+                      ss === "HAVE_IT"
+                        ? "border-[var(--muted)] text-[var(--muted)] bg-[var(--muted)]/10"
+                        : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--muted)]"
+                    }`}
+                  >
+                    {ss === "HAVE_IT" ? "✓" : "have"}
+                  </button>
+                )}
               </div>
             );
           })}

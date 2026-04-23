@@ -40,7 +40,12 @@ type PlanItem = {
 };
 
 function displayName(item: PlanItem): string {
-  return item.name ?? item.recipe?.name ?? "Unknown";
+  if (item.type !== "quick" && !item.recipe) return "Recipe not available";
+  return item.name ?? item.recipe?.name ?? "Unnamed";
+}
+
+function isRecipeMissing(item: PlanItem): boolean {
+  return item.type !== "quick" && !item.recipe;
 }
 
 type RecipeOption = { id: string; name: string; servings: number };
@@ -808,8 +813,19 @@ export default function WeekPlanner({
                               <button
                                 type="button"
                                 onClick={() => item.recipe && toggleExpanded(item.id)}
-                                className="flex-1 min-w-0 text-left text-sm font-medium truncate hover:text-[var(--accent)] transition-colors"
-                                title={item.recipe ? (expandedSlots.has(item.id) ? "Hide ingredients" : "Show scaled ingredients") : undefined}
+                                disabled={isRecipeMissing(item)}
+                                className={`flex-1 min-w-0 text-left text-sm font-medium truncate transition-colors ${
+                                  isRecipeMissing(item)
+                                    ? "text-[var(--muted)] italic cursor-default"
+                                    : "hover:text-[var(--accent)]"
+                                }`}
+                                title={
+                                  isRecipeMissing(item)
+                                    ? "Recipe was deleted"
+                                    : item.recipe
+                                    ? (expandedSlots.has(item.id) ? "Hide ingredients" : "Show scaled ingredients")
+                                    : undefined
+                                }
                               >
                                 {displayName(item)}
                                 {item.recipe && (

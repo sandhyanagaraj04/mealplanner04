@@ -314,7 +314,8 @@ export async function updateMealPlanItem(
 
   // ── Regular field update ─────────────────────────────────────────────────────
   const newServings = item.recipe ? (data.servings ?? item.servings) : 1;
-  const scaleFactor = item.recipe ? newServings / item.recipe.servings : 1.0;
+  const baseServings = item.recipe ? Math.max(1, item.recipe.servings) : 1;
+  const scaleFactor = item.recipe ? newServings / baseServings : 1.0;
 
   try {
     const updated = await db.mealPlanItem.update({

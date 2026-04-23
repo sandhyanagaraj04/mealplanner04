@@ -238,7 +238,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
         const conf = initialConfidence(key);
         groups.set(key, {
           ingredientId: ri.ingredientId ?? null,
-          ingredientName: ri.ingredient?.name ?? ri.displayName ?? ri.rawText,
+          ingredientName: ri.ingredient?.name ?? ri.displayName ?? (ri.rawText.trim() || "Unknown ingredient"),
           category: ri.ingredient?.category ?? null,
           totalQuantity: effectiveQty != null ? roundQty(effectiveQty) : null,
           unit: effectiveUnit,
@@ -342,7 +342,7 @@ export async function getShoppingList(planId: string, userId: string): Promise<S
       if (!groups.has(key)) {
         groups.set(key, {
           ingredientId: null,
-          ingredientName: si.itemName,
+          ingredientName: si.itemName.trim() || "Unknown item",
           category: null,
           totalQuantity: qty != null ? roundQty(qty) : null,
           unit,
