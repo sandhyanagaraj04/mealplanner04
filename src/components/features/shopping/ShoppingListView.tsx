@@ -32,7 +32,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 type SourceKey = string; // `${mealPlanItemId}:${recipeIngredientId}`
 
 function sourceKey(src: ShoppingSource): SourceKey {
-  return `${src.mealPlanItemId}:${src.recipeIngredientId}`;
+  const riPart = src.recipeIngredientId ?? `q:${src.quickShoppingItemId}`;
+  return `${src.mealPlanItemId}:${riPart}`;
 }
 
 function effectiveState(
@@ -74,7 +75,7 @@ const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function sourceMeta(src: ShoppingSource): string {
   const day = DAY_SHORT[src.dayOfWeek] ?? "";
   const meal = src.mealType.charAt(0).toUpperCase() + src.mealType.slice(1);
-  return `${day} · ${meal} · ${src.recipeName}`;
+  return `${day} · ${meal}${src.recipeName ? ` · ${src.recipeName}` : ""}`;
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────

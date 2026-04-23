@@ -168,10 +168,14 @@ export interface PaginatedResponse<T> {
 export interface ShoppingSource {
   stateId: string | null;
   mealPlanItemId: string;
-  recipeIngredientId: string;
+  // null for quick-meal shopping items (no recipe ingredient backing them)
+  recipeIngredientId: string | null;
+  // non-null only for quick-meal shopping items
+  quickShoppingItemId: string | null;
   dayOfWeek: DayOfWeek;
   mealType: MealType;
-  recipeName: string;
+  // recipe name, quick-meal name, or null when unavailable
+  recipeName: string | null;
   scaledQuantity: number | null;
   unit: string | null;
   state: ShoppingState;
@@ -191,6 +195,8 @@ export interface ShoppingListItem {
   sourceCount: number;
   // Non-null when quantities could not be merged (incompatible units, missing qty, etc.)
   mergeWarning: string | null;
+  // 1.0 = exact canonical match, 0.9 = normalised-name, 0.8 = raw/quick, 0.7 = cross-type merge
+  mergeConfidence: number;
   sources: ShoppingSource[];
 }
 
